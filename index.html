@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Grade Commander — Full Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;1,400&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+/* ═══════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --paper:     #0B0E09;
+  --warm:      #111a0d;
+  --elevated:  #1C2914;
+  --ink1:      #EDE8D0;
+  --ink2:      #9DAE88;
+  --ink3:      #566644;
+  --rule:      rgba(203,161,53,0.18);
+  --rule-soft: rgba(203,161,53,0.07);
+  --gold:      #CBA135;
+  --gold-dark: #9A7820;
+  --green:     #4A7230;
+  --green-lt:  #3C5E26;
+  --alert:     #D97B3A;
+  --danger:    #C94040;
+  --display:   'Bebas Neue', sans-serif;
+  --body:      'Barlow', sans-serif;
+  --cond:      'Barlow Condensed', sans-serif;
+  --mono:      'JetBrains Mono', monospace;
+}
+html, body { height: 100%; background: var(--paper); color: var(--ink1); font-family: var(--body); font-size: 14px; }
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: var(--body); }
+input, select { font-family: var(--body); }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--warm); }
+::-webkit-scrollbar-thumb { background: rgba(203,161,53,0.3); border-radius: 3px; }
+
+/* ═══════════════════════════════════════
+   SCREENS
+═══════════════════════════════════════ */
+.screen { display: none; min-height: 100vh; }
+.screen.active { display: flex; }
+
+/* ═══════════════════════════════════════
+   AUTH SCREEN
+═══════════════════════════════════════ */
+#auth-screen {
+  align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 0%, #1a2712 0%, #0B0E09 65%);
+  padding: 40px 20px;
+}
+.auth-box {
+  width: 100%; max-width: 400px;
+  background: var(--warm); border: 1px solid var(--rule);
+  border-radius: 16px; padding: 40px 36px; display: flex; flex-direction: column; align-items: center; gap: 20px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+}
+.auth-ape { width: 72px; height: 72px; }
+.auth-title { font-family: var(--display); font-size: 40px; letter-spacing: 4px; color: var(--gold); text-align: center; line-height: 1; }
+.auth-sub { font-family: var(--cond); font-size: 11px; letter-spacing: 2.5px; color: var(--ink3); text-align: center; }
+.auth-tabs { display: flex; gap: 0; width: 100%; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.auth-tab { flex: 1; padding: 9px; text-align: center; font-family: var(--cond); font-size: 12px; font-weight: 600; letter-spacing: 2px; color: var(--ink3); background: transparent; border: none; cursor: pointer; transition: all 0.15s; }
+.auth-tab.active { background: linear-gradient(135deg,var(--gold),var(--gold-dark)); color: var(--paper); }
+.auth-form { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.auth-input {
+  width: 100%; padding: 12px 14px; background: var(--elevated); border: 1px solid var(--rule);
+  border-radius: 8px; color: var(--ink1); font-size: 14px; outline: none; transition: border-color 0.2s;
+}
+.auth-input:focus { border-color: var(--gold); }
+.auth-input::placeholder { color: var(--ink3); }
+.auth-btn {
+  width: 100%; padding: 14px; background: linear-gradient(135deg,var(--gold),var(--gold-dark));
+  border: none; border-radius: 8px; font-family: var(--display); font-size: 20px; letter-spacing: 3px;
+  color: var(--paper); box-shadow: 0 4px 20px rgba(203,161,53,0.3); transition: opacity 0.2s;
+}
+.auth-btn:hover { opacity: 0.88; }
+.auth-err { font-family: var(--cond); font-size: 12px; color: var(--alert); text-align: center; letter-spacing: 1px; min-height: 16px; }
+
+/* ═══════════════════════════════════════
+   APP LAYOUT
+═══════════════════════════════════════ */
+#app-screen { flex-direction: row; }
+
+/* SIDEBAR */
+.sidebar {
+  width: 200px; min-height: 100vh; background: var(--warm);
+  border-right: 1px solid var(--rule); display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh; flex-shrink: 0; overflow-y: auto;
+}
+.sidebar-brand { padding: 20px 16px 16px; border-bottom: 1px solid var(--rule); }
+.sidebar-brand-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.sidebar-ape { width: 38px; height: 38px; flex-shrink: 0; }
+.sidebar-name { font-family: var(--display); font-size: 16px; letter-spacing: 2px; line-height: 1.1; }
+.sidebar-name span { color: var(--gold); }
+.sidebar-motto { font-family: var(--mono); font-size: 7px; letter-spacing: 2px; color: var(--ink3); }
+.sidebar-user { padding: 10px 16px 0; border-bottom: 1px solid var(--rule); padding-bottom: 10px; }
+.sidebar-user-name { font-family: var(--cond); font-size: 12px; font-weight: 600; color: var(--ink2); letter-spacing: 1px; }
+.sidebar-user-email { font-family: var(--mono); font-size: 9px; color: var(--ink3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+nav.sidebar-nav { flex: 1; padding: 8px 0; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px; margin: 2px 8px;
+  border-radius: 6px; cursor: pointer; transition: all 0.12s; border: 1px solid transparent;
+  font-family: var(--display); font-size: 14px; letter-spacing: 2px; color: var(--ink3);
+}
+.nav-item:hover { background: var(--elevated); border-color: var(--rule); color: var(--ink2); }
+.nav-item.active { background: linear-gradient(135deg,var(--gold),var(--gold-dark)); color: var(--paper); border-color: transparent; box-shadow: 0 2px 10px rgba(203,161,53,0.3); }
+.nav-item svg { flex-shrink: 0; }
+.nav-num { font-family: var(--mono); font-size: 8px; margin-left: auto; opacity: 0.5; }
+.sidebar-bottom { padding: 12px; border-top: 1px solid var(--rule); }
+.term-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px; }
+.term-label { font-family: var(--mono); font-size: 8px; letter-spacing: 2px; color: var(--ink3); margin-bottom: 4px; }
+.term-btn {
+  padding: 6px; text-align: center; font-family: var(--mono); font-size: 8px; letter-spacing: 1.5px;
+  background: var(--elevated); border: 1px solid var(--rule); border-radius: 4px; color: var(--ink3);
+  cursor: pointer; transition: all 0.12s;
+}
+.term-btn.active { background: linear-gradient(135deg,var(--gold),var(--gold-dark)); color: var(--paper); border-color: transparent; }
+.signout-btn {
+  width: 100%; margin-top: 8px; padding: 8px; background: transparent; border: 1px solid var(--rule);
+  border-radius: 4px; font-family: var(--mono); font-size: 8px; letter-spacing: 2px; color: var(--ink3);
+  transition: all 0.15s;
+}
+.signout-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+/* MAIN CONTENT */
+.main-content { flex: 1; min-height: 100vh; overflow-y: auto; padding: 28px 32px; max-width: calc(100vw - 200px); }
+
+/* ═══════════════════════════════════════
+   PAGE HEADER
+═══════════════════════════════════════ */
+.page-header { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); }
+.page-eyebrow { font-family: var(--mono); font-size: 9px; letter-spacing: 2.5px; color: var(--gold); margin-bottom: 6px; opacity: 0.8; }
+.page-title { font-family: var(--display); font-size: 36px; letter-spacing: 3px; color: var(--ink1); line-height: 1; }
+.page-sub { font-size: 13px; color: var(--ink2); margin-top: 6px; }
+
+/* ═══════════════════════════════════════
+   CARDS
+═══════════════════════════════════════ */
+.card {
+  background: var(--warm); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 18px; position: relative; overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+.card-accent-top { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg,var(--gold),var(--gold-dark)); }
+.card-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--ink3); margin-bottom: 8px; text-transform: uppercase; }
+.card-value { font-family: var(--display); font-size: 38px; letter-spacing: 2px; line-height: 1; color: var(--ink1); }
+.card-value.gold { background: linear-gradient(135deg,var(--gold),var(--gold-dark)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.card-sub { font-family: var(--mono); font-size: 9px; color: var(--ink3); margin-top: 4px; }
+
+/* GRID LAYOUTS */
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+
+/* ═══════════════════════════════════════
+   PAGES (show/hide)
+═══════════════════════════════════════ */
+.page { display: none; }
+.page.active { display: block; }
+
+/* ═══════════════════════════════════════
+   HOME PAGE
+═══════════════════════════════════════ */
+.sparkline-wrap { height: 40px; margin-top: 8px; }
+.progress-bar-wrap { height: 4px; background: var(--rule-soft); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: linear-gradient(90deg,var(--gold),var(--gold-dark)); border-radius: 2px; transition: width 0.6s ease; }
+.risk-badge { display: inline-block; font-family: var(--mono); font-size: 9px; letter-spacing: 1.5px; padding: 3px 8px; border-radius: 3px; margin-top: 8px; }
+.risk-low { background: rgba(74,114,48,0.2); color: #86d458; border: 1px solid rgba(74,114,48,0.4); }
+.risk-medium { background: rgba(203,161,53,0.15); color: var(--gold); border: 1px solid rgba(203,161,53,0.3); }
+.risk-high { background: rgba(201,64,64,0.15); color: #e87777; border: 1px solid rgba(201,64,64,0.3); }
+
+.course-row {
+  display: grid; grid-template-columns: 6px 1fr auto auto auto; gap: 14px;
+  align-items: center; padding: 12px; background: var(--warm); border: 1px solid var(--rule);
+  border-radius: 6px; margin-bottom: 8px; transition: border-color 0.15s;
+}
+.course-row:hover { border-color: rgba(203,161,53,0.35); }
+.course-dot { border-radius: 2px; align-self: stretch; min-height: 28px; }
+.course-info .course-name { font-family: var(--cond); font-size: 15px; font-weight: 700; color: var(--ink1); }
+.course-info .course-code { font-family: var(--mono); font-size: 9px; color: var(--ink3); margin-top: 2px; letter-spacing: 1px; }
+.course-stat { text-align: right; }
+.course-stat .stat-val { font-family: var(--display); font-size: 20px; color: var(--ink1); }
+.course-stat .stat-lbl { font-family: var(--mono); font-size: 8px; color: var(--ink3); letter-spacing: 1px; }
+.course-stat.gold .stat-val { color: var(--gold); }
+.course-stat.green .stat-val { color: var(--green); }
+
+.priority-big {
+  background: var(--warm); border: 1px solid var(--rule); border-radius: 8px; padding: 18px;
+  margin-bottom: 18px; display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start;
+}
+.priority-top-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--ink3); margin-bottom: 6px; }
+.priority-course-name { font-family: var(--display); font-size: 24px; letter-spacing: 2px; color: var(--ink1); }
+.priority-desc { font-size: 13px; color: var(--ink2); margin-top: 4px; }
+.high-impact-pill {
+  background: rgba(203,161,53,0.15); border: 1px solid var(--gold); color: var(--gold);
+  font-family: var(--mono); font-size: 9px; letter-spacing: 1.5px; padding: 4px 10px; border-radius: 4px;
+}
+
+/* ═══════════════════════════════════════
+   INSIGHTS PAGE
+═══════════════════════════════════════ */
+.insight-card {
+  background: var(--warm); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px;
+  margin-bottom: 10px; display: grid; grid-template-columns: 4px 1fr auto; gap: 14px; align-items: center;
+}
+.insight-severity { border-radius: 2px; align-self: stretch; }
+.insight-tag { font-family: var(--mono); font-size: 8px; letter-spacing: 2px; margin-bottom: 4px; }
+.insight-text { font-size: 13px; color: var(--ink1); line-height: 1.45; }
+
+/* Gemini Chatbot */
+.chatbot-card { background: var(--warm); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin-top: 24px; }
+.chatbot-header { background: var(--elevated); padding: 12px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--rule); }
+.chatbot-title { font-family: var(--display); font-size: 14px; letter-spacing: 2px; color: var(--ink1); }
+.chatbot-status { margin-left: auto; font-family: var(--mono); font-size: 8px; letter-spacing: 1.5px; color: var(--gold); }
+.chat-messages { height: 220px; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.chat-msg { display: flex; }
+.chat-msg.user { justify-content: flex-end; }
+.chat-bubble {
+  max-width: 75%; padding: 9px 13px; border-radius: 10px; font-size: 13px; line-height: 1.45;
+  border: 1px solid var(--rule);
+}
+.chat-msg.user .chat-bubble { background: linear-gradient(135deg,var(--gold),var(--gold-dark)); color: var(--paper); border: none; border-radius: 10px 10px 2px 10px; }
+.chat-msg.assistant .chat-bubble { background: var(--elevated); color: var(--ink1); border-radius: 10px 10px 10px 2px; }
+.chat-input-row { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--rule); background: var(--warm); }
+.chat-input {
+  flex: 1; padding: 9px 12px; background: var(--elevated); border: 1px solid var(--rule);
+  border-radius: 6px; color: var(--ink1); font-size: 13px; outline: none;
+}
+.chat-input:focus { border-color: var(--gold); }
+.chat-input::placeholder { color: var(--ink3); }
+.chat-send {
+  padding: 9px 16px; background: linear-gradient(135deg,var(--gold),var(--gold-dark));
+  border: none; border-radius: 6px; font-family: var(--display); font-size: 13px; letter-spacing: 1.5px;
+  color: var(--paper); transition: opacity 0.15s;
+}
+.chat-send:hover { opacity: 0.85; }
+
+/* ═══════════════════════════════════════
+   STRATEGY PAGE
+═══════════════════════════════════════ */
+.strategy-row {
+  display: grid; grid-template-columns: 48px 6px 1fr auto 120px; gap: 16px;
+  align-items: center; padding: 16px 0; border-bottom: 1px solid var(--rule-soft);
+}
+.strategy-num { font-family: var(--display); font-size: 42px; color: var(--ink3); letter-spacing: -2px; line-height: 1; }
+.strategy-num.top { color: var(--ink1); }
+.strategy-bar-wrap { height: 6px; background: var(--elevated); border-radius: 3px; overflow: hidden; }
+.strategy-bar-fill { height: 100%; border-radius: 3px; }
+
+/* ═══════════════════════════════════════
+   SETTINGS PAGE
+═══════════════════════════════════════ */
+.settings-section { margin-bottom: 24px; }
+.settings-label { font-family: var(--display); font-size: 18px; letter-spacing: 2px; color: var(--gold); margin-bottom: 14px; }
+.settings-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 12px 0;
+  border-bottom: 1px solid var(--rule-soft); align-items: center;
+}
+.settings-row-title { font-family: var(--cond); font-size: 14px; font-weight: 600; color: var(--ink1); }
+.settings-row-desc { font-size: 12px; color: var(--ink3); margin-top: 2px; }
+.toggle-track {
+  width: 44px; height: 24px; background: var(--elevated); border: 1px solid var(--rule);
+  border-radius: 12px; position: relative; cursor: pointer; transition: all 0.2s;
+}
+.toggle-track.on { background: linear-gradient(135deg,var(--gold),var(--gold-dark)); border-color: transparent; }
+.toggle-thumb {
+  width: 18px; height: 18px; background: var(--ink3); border-radius: 50%;
+  position: absolute; top: 2px; left: 2px; transition: all 0.2s;
+}
+.toggle-track.on .toggle-thumb { left: 22px; background: var(--paper); }
+.range-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; }
+.range-input { flex: 1; accent-color: var(--gold); }
+.range-val { font-family: var(--display); font-size: 32px; color: var(--gold); letter-spacing: 2px; min-width: 70px; text-align: right; }
+.scale-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.scale-opt {
+  padding: 12px; background: var(--elevated); border: 1px solid var(--rule);
+  border-radius: 6px; cursor: pointer; transition: all 0.15s;
+}
+.scale-opt.active { background: linear-gradient(135deg,var(--gold),var(--gold-dark)); border-color: transparent; }
+.scale-opt-val { font-family: var(--display); font-size: 20px; letter-spacing: 2px; }
+.scale-opt.active .scale-opt-val, .scale-opt.active .scale-opt-desc { color: var(--paper); }
+.scale-opt-desc { font-family: var(--mono); font-size: 9px; color: var(--ink3); margin-top: 3px; }
+.danger-btn {
+  padding: 10px 20px; background: transparent; border: 1px solid var(--danger);
+  border-radius: 6px; color: var(--danger); font-family: var(--mono); font-size: 10px;
+  letter-spacing: 2px; cursor: pointer; transition: all 0.15s;
+}
+.danger-btn:hover { background: rgba(201,64,64,0.1); }
+
+/* ═══════════════════════════════════════
+   PROGRESS PAGE
+═══════════════════════════════════════ */
+.chart-wrap { height: 280px; background: var(--elevated); border-radius: 8px; padding: 16px; position: relative; }
+.chart-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--ink3); }
+
+/* ═══════════════════════════════════════
+   SIMULATOR PAGE
+═══════════════════════════════════════ */
+.sim-hero { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; background: var(--ink1); color: var(--paper); border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
+.sim-block { padding: 20px 24px; border-right: 1px solid rgba(0,0,0,0.1); }
+.sim-block:last-child { border-right: none; }
+.sim-block-lbl { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; opacity: 0.5; margin-bottom: 6px; }
+.sim-block-val { font-family: var(--display); font-size: 48px; letter-spacing: 2px; line-height: 1; }
+.sim-block-val.pos { color: #86d458; }
+.sim-block-val.neg { color: #e87777; }
+.slider-row { padding: 10px 0; border-bottom: 1px solid var(--rule-soft); }
+.slider-meta { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.slider-name { font-family: var(--cond); font-size: 13px; font-weight: 600; color: var(--ink1); }
+.slider-pct { font-family: var(--display); font-size: 20px; color: var(--ink1); }
+.slider-sub { font-family: var(--mono); font-size: 8px; color: var(--ink3); letter-spacing: 1px; margin-bottom: 6px; }
+.range-slider { width: 100%; accent-color: var(--gold); }
+
+/* ═══════════════════════════════════════
+   COURSES PAGE
+═══════════════════════════════════════ */
+.course-card {
+  background: var(--warm); border: 1px solid var(--rule); border-radius: 8px;
+  margin-bottom: 12px; overflow: hidden;
+}
+.course-card-header {
+  display: grid; grid-template-columns: 48px 1fr auto auto auto; gap: 14px;
+  align-items: center; padding: 14px 16px; cursor: pointer; transition: background 0.15s;
+}
+.course-card-header:hover { background: var(--elevated); }
+.course-color-block { width: 48px; height: 48px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+.course-init { font-family: var(--display); font-size: 22px; color: white; }
+.course-card-name { font-family: var(--display); font-size: 18px; letter-spacing: 1.5px; color: var(--ink1); }
+.course-card-meta { font-family: var(--mono); font-size: 9px; color: var(--ink3); letter-spacing: 1px; margin-top: 2px; }
+.course-card-stat .sv { font-family: var(--display); font-size: 24px; color: var(--ink1); }
+.course-card-stat .sl { font-family: var(--mono); font-size: 8px; color: var(--ink3); }
+.chevron { color: var(--ink3); transition: transform 0.2s; }
+.chevron.open { transform: rotate(90deg); }
+.course-card-body { border-top: 1px solid var(--rule); padding: 14px 16px; background: var(--paper); display: none; }
+.course-card-body.open { display: block; }
+.cat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--rule-soft); }
+.cat-name { font-family: var(--cond); font-size: 14px; font-weight: 600; color: var(--ink1); }
+.cat-weight { font-family: var(--mono); font-size: 9px; color: var(--gold); }
+.cat-pct { font-family: var(--display); font-size: 20px; color: var(--ink1); }
+.asgn-row { display: grid; grid-template-columns: auto 1fr 60px auto 60px auto; gap: 8px; align-items: center; padding: 5px 0; }
+.asgn-check { width: 16px; height: 16px; border: 1.5px solid var(--ink3); border-radius: 3px; display: flex; align-items: center; justify-content: center; }
+.asgn-check.done { background: var(--gold); border-color: var(--gold); }
+.asgn-name { font-size: 12px; color: var(--ink1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.asgn-score { font-family: var(--mono); font-size: 11px; text-align: right; }
+.asgn-status { font-family: var(--mono); font-size: 8px; letter-spacing: 1px; }
+.asgn-status.miss { color: var(--alert); }
+.asgn-status.late { color: var(--gold); }
+.asgn-status.done { color: var(--green); }
+.asgn-status.pend { color: var(--ink3); }
+
+/* ═══════════════════════════════════════
+   POWERSCHOOL BANNER
+═══════════════════════════════════════ */
+.ps-banner {
+  background: rgba(217,123,58,0.1); border: 1px solid var(--alert);
+  border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;
+  display: flex; align-items: center; gap: 12px;
+}
+.ps-banner-text .title { font-family: var(--display); font-size: 16px; letter-spacing: 1.5px; color: var(--ink1); }
+.ps-banner-text .sub { font-size: 12px; color: var(--ink2); margin-top: 2px; }
+
+/* LOADING STATE */
+.app-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60vh; gap: 16px; }
+.spinner { width: 32px; height: 32px; border: 2px solid rgba(203,161,53,0.2); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.6} }
+
+/* RESPONSIVE */
+@media (max-width: 900px) {
+  .sidebar { width: 160px; }
+  .main-content { padding: 20px; }
+  .grid-4 { grid-template-columns: repeat(2,1fr); }
+}
+@media (max-width: 640px) {
+  #app-screen { flex-direction: column; }
+  .sidebar { width: 100%; height: auto; min-height: unset; position: static; flex-direction: row; flex-wrap: wrap; }
+  .sidebar-nav { display: flex; flex-wrap: wrap; }
+  .main-content { max-width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<!-- AUTH -->
+<div class="screen active" id="auth-screen">
+  <div class="auth-box">
+    <svg class="auth-ape" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="40" cy="52" rx="26" ry="22" fill="#1a1208"/>
+      <ellipse cx="40" cy="44" rx="22" ry="20" fill="#2d1f10"/>
+      <ellipse cx="40" cy="46" rx="14" ry="12" fill="#4a2e18"/>
+      <circle cx="31" cy="38" r="5.5" fill="#111"/>
+      <circle cx="49" cy="38" r="5.5" fill="#111"/>
+      <circle cx="32.5" cy="36.5" r="2" fill="white"/>
+      <circle cx="50.5" cy="36.5" r="2" fill="white"/>
+      <ellipse cx="40" cy="50" rx="7" ry="5" fill="#3a2414"/>
+      <path d="M20 36 Q15 26 20 20 Q25 28 23 36" fill="#2d1f10"/>
+      <path d="M60 36 Q65 26 60 20 Q55 28 57 36" fill="#2d1f10"/>
+      <rect x="24" y="4" width="32" height="20" rx="4" fill="#1e3212"/>
+      <rect x="24" y="4" width="32" height="6" rx="2" fill="#CBA135"/>
+      <text x="40" y="20" text-anchor="middle" font-size="10" font-weight="bold" fill="#CBA135" font-family="sans-serif">A+</text>
+      <circle cx="18" cy="10" r="3" fill="#CBA135"/>
+      <circle cx="62" cy="10" r="3" fill="#CBA135"/>
+    </svg>
+    <div class="auth-title">GRADE<br>COMMANDER</div>
+    <div class="auth-sub">★ COMMAND YOUR GRADES. DOMINATE YOUR FUTURE. ★</div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">SIGN IN</button>
+      <button class="auth-tab" id="tab-signup" onclick="switchTab('signup')">ENLIST</button>
+    </div>
+    <div class="auth-form" id="auth-form-login">
+      <input class="auth-input" type="email" id="login-email" placeholder="Email address"/>
+      <input class="auth-input" type="password" id="login-password" placeholder="Password"/>
+      <div class="auth-err" id="login-err"></div>
+      <button class="auth-btn" onclick="doLogin()">DEPLOY</button>
+    </div>
+    <div class="auth-form" id="auth-form-signup" style="display:none">
+      <input class="auth-input" type="text" id="signup-name" placeholder="Your name"/>
+      <input class="auth-input" type="email" id="signup-email" placeholder="Email address"/>
+      <input class="auth-input" type="password" id="signup-password" placeholder="Password (6+ chars)"/>
+      <div class="auth-err" id="signup-err"></div>
+      <button class="auth-btn" onclick="doSignup()">ENLIST NOW</button>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="screen" id="app-screen">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-row">
+        <svg class="sidebar-ape" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="40" cy="52" rx="26" ry="22" fill="#1a1208"/>
+          <ellipse cx="40" cy="44" rx="22" ry="20" fill="#2d1f10"/>
+          <ellipse cx="40" cy="46" rx="14" ry="12" fill="#4a2e18"/>
+          <circle cx="31" cy="38" r="5.5" fill="#111"/>
+          <circle cx="49" cy="38" r="5.5" fill="#111"/>
+          <circle cx="32.5" cy="36.5" r="2" fill="white"/>
+          <circle cx="50.5" cy="36.5" r="2" fill="white"/>
+          <ellipse cx="40" cy="50" rx="7" ry="5" fill="#3a2414"/>
+          <rect x="24" y="4" width="32" height="20" rx="4" fill="#1e3212"/>
+          <rect x="24" y="4" width="32" height="6" rx="2" fill="#CBA135"/>
+          <text x="40" y="20" text-anchor="middle" font-size="10" font-weight="bold" fill="#CBA135" font-family="sans-serif">A+</text>
+        </svg>
+        <div class="sidebar-name"><span>GRADE</span><br>COMMANDER</div>
+      </div>
+      <div class="sidebar-motto">★ PLAN. PREDICT. PERFORM. ★</div>
+    </div>
+    <div class="sidebar-user">
+      <div class="sidebar-user-name" id="sb-name">Commander</div>
+      <div class="sidebar-user-email" id="sb-email">—</div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-page="home" onclick="navTo('home')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Home <span class="nav-num">01</span>
+      </div>
+      <div class="nav-item" data-page="courses" onclick="navTo('courses')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
+        Courses <span class="nav-num">02</span>
+      </div>
+      <div class="nav-item" data-page="strategy" onclick="navTo('strategy')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        Strategy <span class="nav-num">03</span>
+      </div>
+      <div class="nav-item" data-page="simulator" onclick="navTo('simulator')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4.97 0 9 4.03 9 9s-4.03 9-9 9-9-4.03-9-9 4.03-9 9-9z"/><path d="M12 8v4l3 3"/></svg>
+        Simulator <span class="nav-num">04</span>
+      </div>
+      <div class="nav-item" data-page="insights" onclick="navTo('insights')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/></svg>
+        Insights <span class="nav-num">05</span>
+      </div>
+      <div class="nav-item" data-page="progress" onclick="navTo('progress')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></svg>
+        Progress <span class="nav-num">06</span>
+      </div>
+      <div class="nav-item" data-page="settings" onclick="navTo('settings')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings <span class="nav-num">07</span>
+      </div>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="term-label">VIEWING</div>
+      <div class="term-toggle">
+        <div class="term-btn active" id="term-s2" onclick="setTerm('S2')">SEM 2</div>
+        <div class="term-btn" id="term-y1" onclick="setTerm('Y1')">YEAR</div>
+      </div>
+      <button class="signout-btn" onclick="doSignOut()">SIGN OUT</button>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <main class="main-content">
+
+    <!-- HOME PAGE -->
+    <div class="page active" id="page-home">
+      <div class="page-header">
+        <div class="page-eyebrow" id="home-eyebrow">SPRING 2025</div>
+        <div class="page-title">COMMAND CENTER</div>
+        <div class="page-sub">Your academic overview. Dominate the semester.</div>
+      </div>
+      <div id="home-nops" class="ps-banner" style="display:none">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97B3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        <div class="ps-banner-text">
+          <div class="title">NO DATA LOADED</div>
+          <div class="sub">Open the extension on your PowerSchool page to load grades, or data syncs from the extension automatically.</div>
+        </div>
+      </div>
+      <div class="grid-4" id="home-stats">
+        <div class="card"><div class="card-accent-top"></div><div class="card-label">CURRENT GPA</div><div class="card-value gold" id="h-gpa">—</div><div class="card-sub" id="h-gpa-sub">—</div></div>
+        <div class="card"><div class="card-label">TARGET GPA</div><div class="card-value" id="h-target">—</div><div class="card-sub" id="h-target-sub">by June 1</div></div>
+        <div class="card"><div class="card-label">ON TRACK</div><div class="card-value" id="h-track">—%</div><div class="progress-bar-wrap"><div class="progress-bar-fill" id="h-track-bar" style="width:0%"></div></div></div>
+        <div class="card"><div class="card-label">RISK LEVEL</div><div class="card-value" id="h-risk">—</div><div id="h-risk-badge"></div></div>
+      </div>
+      <div id="home-priority" class="priority-big" style="display:none">
+        <div>
+          <div class="priority-top-label">★ TOP PRIORITY</div>
+          <div class="priority-course-name" id="h-priority-name">—</div>
+          <div class="priority-desc" id="h-priority-desc">—</div>
+        </div>
+        <div class="high-impact-pill">HIGH IMPACT</div>
+      </div>
+      <div class="grid-3" id="home-quick">
+        <div class="card"><div class="card-label">COURSES</div><div class="card-value" id="h-courses">—</div><div class="card-sub" id="h-credits">— credits</div></div>
+        <div class="card"><div class="card-label">COMPLETED</div><div class="card-value" id="h-done">—</div><div class="card-sub" id="h-pending">— pending</div></div>
+        <div class="card"><div class="card-label">GPA SCALE</div><div class="card-value" id="h-scale">—</div><div class="card-sub" id="h-scale-sub">—</div></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="font-family:var(--display);font-size:20px;letter-spacing:2px;color:var(--ink1)">YOUR COURSES</div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--ink3)" id="h-course-count">0 ACTIVE</div>
+        </div>
+        <div id="home-course-list"></div>
+      </div>
+    </div>
+
+    <!-- COURSES PAGE -->
+    <div class="page" id="page-courses">
+      <div class="page-header">
+        <div class="page-eyebrow">SECTION 02 — COURSES</div>
+        <div class="page-title">COURSES</div>
+        <div class="page-sub">Imported from PowerSchool, weighted by your teacher's scheme.</div>
+      </div>
+      <div id="courses-list"></div>
+    </div>
+
+    <!-- STRATEGY PAGE -->
+    <div class="page" id="page-strategy">
+      <div class="page-header">
+        <div class="page-eyebrow">SECTION 03 — STRATEGY</div>
+        <div class="page-title">WHERE TO SPEND EFFORT</div>
+        <div class="page-sub">Ranked by marginal GPA gain per percentage point of effort.</div>
+      </div>
+      <div id="strategy-list" style="border-top:1px solid var(--rule)"></div>
+    </div>
+
+    <!-- SIMULATOR PAGE -->
+    <div class="page" id="page-simulator">
+      <div class="page-header">
+        <div class="page-eyebrow">SECTION 04 — SIMULATOR</div>
+        <div class="page-title">WHAT IF YOU SCORED…</div>
+        <div class="page-sub">Set hypothetical scores and watch your GPA shift.</div>
+      </div>
+      <div class="sim-hero">
+        <div class="sim-block"><div class="sim-block-lbl">CURRENT</div><div class="sim-block-val" id="sim-current">—</div></div>
+        <div class="sim-block"><div class="sim-block-lbl">PROJECTED</div><div class="sim-block-val" id="sim-projected">—</div></div>
+        <div class="sim-block"><div class="sim-block-lbl">CHANGE</div><div class="sim-block-val" id="sim-delta">+0.00</div></div>
+      </div>
+      <div id="sim-list"></div>
+    </div>
+
+    <!-- INSIGHTS PAGE -->
+    <div class="page" id="page-insights">
+      <div class="page-header">
+        <div class="page-eyebrow">SECTION 05 — INSIGHTS</div>
+        <div class="page-title">WHAT THE DATA SAYS</div>
+        <div class="page-sub">Patterns the model has noticed across your enrollments.</div>
+      </div>
+      <div id="insights-list"></div>
+      <!-- AI Advisor -->
+      <div class="chatbot-card">
+        <div class="chatbot-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#CBA135" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/></svg>
+          <span class="chatbot-title">AI ADVISOR</span>
+          <span class="chatbot-status">GEMINI · ONLINE</span>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg assistant"><div class="chat-bubble">Commander, I'm your AI academic advisor. Ask me anything about your grades, strategy, or how to dominate this semester.</div></div>
+        </div>
+        <div class="chat-input-row">
+          <input class="chat-input" id="chat-input" placeholder="Ask your advisor…" onkeydown="if(event.key==='Enter')sendChat()"/>
+          <button class="chat-send" onclick="sendChat()">SEND</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROGRESS PAGE -->
+    <div class="page" id="page-progress">
+      <div class="page-header">
+        <div class="page-eyebrow">SECTION 06 — PROGRESS</div>
+        <div class="page-title">THE ARC OF THE TERM</div>
+        <div class="page-sub">Your GPA traced through every assignment scored to date.</div>
+      </div>
+      <div class="card">
+        <div class="card-accent-top"></div>
+        <canvas id="progress-chart" height="260" style="width:100%"></canvas>
+      </div>
+    </div>
+
+    <!-- SETTINGS PAGE -->
+    <div class="page" id="page-settings">
+      <div class="page-header">
+        <div class="page-eyebrow">SECTION 07 — SETTINGS</div>
+        <div class="page-title">PREFERENCES</div>
+        <div class="page-sub">Configure the model to match your institution.</div>
+      </div>
+      <div class="card settings-section">
+        <div class="settings-label">GPA SCALE</div>
+        <div class="scale-options">
+          <div class="scale-opt active" id="scale-43" onclick="setScale(4.3)">
+            <div class="scale-opt-val">4.3</div>
+            <div class="scale-opt-desc">HCAS REGULAR & HONORS</div>
+          </div>
+          <div class="scale-opt" id="scale-48" onclick="setScale(4.8)">
+            <div class="scale-opt-val">4.8</div>
+            <div class="scale-opt-desc">AP COURSES (PER HCAS)</div>
+          </div>
+        </div>
+      </div>
+      <div class="card settings-section">
+        <div class="settings-label">TARGET GPA</div>
+        <div class="range-row">
+          <input class="range-input" type="range" min="2" max="4.8" step="0.1" id="target-slider" oninput="updateTarget(this.value)"/>
+          <div class="range-val" id="target-display">3.50</div>
+        </div>
+      </div>
+      <div class="card settings-section">
+        <div class="settings-label">GRADING RULES</div>
+        <div class="settings-row">
+          <div><div class="settings-row-title">Drop Lowest Score</div><div class="settings-row-desc">Remove lowest from each category before averaging.</div></div>
+          <div class="toggle-track" id="tog-drop" onclick="toggleSetting('dropLowest')"><div class="toggle-thumb"></div></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-row-title">Apply Curves</div><div class="settings-row-desc">Allow grade curving on tests.</div></div>
+          <div class="toggle-track" id="tog-curves" onclick="toggleSetting('useCurves')"><div class="toggle-thumb"></div></div>
+        </div>
+        <div class="settings-row" style="border:none">
+          <div><div class="settings-row-title">Semester GPA Only</div><div class="settings-row-desc">Off shows cumulative across terms.</div></div>
+          <div class="toggle-track on" id="tog-sem" onclick="toggleSetting('semesterMode')"><div class="toggle-thumb"></div></div>
+        </div>
+      </div>
+      <div class="card settings-section">
+        <div class="settings-label">DANGER ZONE</div>
+        <button class="danger-btn" onclick="if(confirm('Reset all course weights?')){appState.courseWeights={};saveToFirebase();renderAll();}">RESET ALL WEIGHTS</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, doc, setDoc, onSnapshot, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+// ── REPLACE WITH YOUR FIREBASE CONFIG ──
+const firebaseConfig = {
+  apiKey: "AIzaSyAbyI4jdJsI3vLSu6xAYEEoB9l1llcMukE",
+  authDomain: "grade-commander.firebaseapp.com",
+  projectId: "grade-commander",
+  storageBucket: "grade-commander.firebasestorage.app",
+  messagingSenderId: "926850117789",
+  appId: "1:926850117789:web:4f0d1a055ce1907377a474",
+  measurementId: "G-8CH4NS7M6M"
+};
+
+const GEMINI_KEY = "AIzaSyCc6-SHOVSpCl-urK-oUqIfQ8IBSxzIUbw";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// ── GLOBAL STATE ──
+window.appState = {
+  courses: [], targetGPA: 3.5, scale: 4.3,
+  courseWeights: {}, courseCredits: {}, term: 'S2',
+  dropLowest: false, useCurves: false, semesterMode: true,
+  simAdjustments: {}
+};
+let unsubFS = null;
+
+// ── HELPERS ──
+const $ = id => document.getElementById(id);
+const pctToLetter = p => p>=98?'A+':p>=93?'A':p>=90?'A-':p>=88?'B+':p>=83?'B':p>=80?'B-':p>=78?'C+':p>=73?'C':p>=70?'C-':p>=68?'D+':p>=63?'D':p>=60?'D-':'F';
+const gradeToGPA = (p,s=4.3) => {
+  const ap=s===4.8;
+  if(p>=98)return ap?4.8:4.3; if(p>=93)return ap?4.5:4; if(p>=90)return ap?4.2:3.7;
+  if(p>=88)return ap?3.8:3.3; if(p>=83)return ap?3.5:3; if(p>=80)return ap?3.2:2.7;
+  if(p>=78)return ap?2.8:2.3; if(p>=73)return ap?2.5:2; if(p>=70)return ap?2.2:1.7;
+  if(p>=68)return ap?1.8:1.3; if(p>=63)return ap?1.5:1; if(p>=60)return ap?1.2:.7; return 0;
+};
+const courseGrade = (c, weights) => {
+  const cats = Object.keys(c.categories||{});
+  if(!cats.length) return {pct:0,possible:0};
+  let earned=0, possible=0;
+  cats.forEach(cat=>{
+    (c.categories[cat].items||[]).filter(i=>i.done&&i.score!==null).forEach(i=>{earned+=i.score;possible+=i.max;});
+  });
+  return {pct: possible>0?(earned/possible)*100:0, possible};
+};
+const computeGPA = (courses, weights, scale, credits) => {
+  let tp=0,tc=0;
+  courses.forEach(c=>{
+    const {pct,possible}=courseGrade(c,weights);
+    if(!possible)return;
+    const cr=(credits&&credits[c.sectionId||c.id])??c.credits??3;
+    tp+=gradeToGPA(pct,scale)*cr; tc+=cr;
+  });
+  return tc>0?tp/tc:0;
+};
+const computeImpact = (c,weights,scale,credits) => {
+  const {pct,possible}=courseGrade(c,weights);
+  if(!possible)return 0;
+  const bounds=[60,63,68,70,73,78,80,83,88,90,93,98];
+  const next=bounds.find(b=>b>pct); if(!next)return 0;
+  const cr=(credits&&credits[c.sectionId||c.id])??c.credits??3;
+  return (gradeToGPA(next,scale)-gradeToGPA(pct,scale))/(next-pct+0.5)*cr*100;
+};
+const courseColor = i => ['#e8503a','#d4a373','#5c8d89','#a07cbc','#3d6b4d','#c4452f','#7a8b99','#b8763d'][i%8];
+
+window.saveToFirebase = async () => {
+  const user = auth.currentUser; if(!user)return;
+  try { await setDoc(doc(db,'users',user.uid,'data','state'), appState, {merge:true}); }
+  catch(e){ console.error('Save error:',e); }
+};
+
+// ── AUTH ──
+window.switchTab = tab => {
+  $('tab-login').classList.toggle('active', tab==='login');
+  $('tab-signup').classList.toggle('active', tab==='signup');
+  $('auth-form-login').style.display = tab==='login'?'flex':'none';
+  $('auth-form-signup').style.display = tab==='signup'?'flex':'none';
+};
+window.doLogin = async () => {
+  const email=$('login-email').value.trim(), pass=$('login-password').value;
+  $('login-err').textContent='';
+  try { await signInWithEmailAndPassword(auth,email,pass); }
+  catch(e){ $('login-err').textContent=e.message.replace('Firebase: ','').replace(/\(.*\)/,''); }
+};
+window.doSignup = async () => {
+  const name=$('signup-name').value.trim(), email=$('signup-email').value.trim(), pass=$('signup-password').value;
+  $('signup-err').textContent='';
+  try {
+    const cred=await createUserWithEmailAndPassword(auth,email,pass);
+    await updateProfile(cred.user,{displayName:name});
+    await setDoc(doc(db,'users',cred.user.uid,'data','state'),{...appState});
+  } catch(e){ $('signup-err').textContent=e.message.replace('Firebase: ','').replace(/\(.*\)/,''); }
+};
+window.doSignOut = async () => {
+  if(unsubFS)unsubFS(); await signOut(auth);
+};
+
+onAuthStateChanged(auth, user => {
+  if(user){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    $('app-screen').classList.add('active');
+    $('sb-name').textContent = user.displayName || 'Commander';
+    $('sb-email').textContent = user.email;
+    const ref=doc(db,'users',user.uid,'data','state');
+    if(unsubFS)unsubFS();
+    unsubFS=onSnapshot(ref,snap=>{
+      if(snap.exists()){
+        const d=snap.data();
+        Object.assign(appState,d);
+        renderAll();
+      }
+    });
+  } else {
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    $('auth-screen').classList.add('active');
+  }
+});
+
+// ── NAVIGATION ──
+window.navTo = page => {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  $(`page-${page}`).classList.add('active');
+  document.querySelector(`[data-page="${page}"]`).classList.add('active');
+  renderPage(page);
+};
+const renderPage = page => {
+  if(page==='home')renderHome();
+  else if(page==='courses')renderCourses();
+  else if(page==='strategy')renderStrategy();
+  else if(page==='simulator')renderSimulator();
+  else if(page==='insights')renderInsights();
+  else if(page==='progress')renderProgress();
+  else if(page==='settings')renderSettings();
+};
+window.renderAll = () => {
+  const active = document.querySelector('.page.active');
+  if(active) renderPage(active.id.replace('page-',''));
+};
+
+// ── HOME ──
+const renderHome = () => {
+  const {courses,targetGPA,scale,courseWeights,courseCredits}=appState;
+  const gpa=computeGPA(courses,courseWeights,scale,courseCredits);
+  const noCourses=courses.length===0;
+  $('home-nops').style.display=noCourses?'flex':'none';
+  $('h-gpa').textContent=gpa>0?gpa.toFixed(2):'—';
+  $('h-gpa-sub').textContent=gpa>0&&targetGPA>0?`${gpa>=targetGPA?'↑ ':''} ${Math.abs(gpa-targetGPA).toFixed(2)} ${gpa>=targetGPA?'above':'below'} target`:'—';
+  $('h-target').textContent=targetGPA.toFixed(2);
+  const onTrackPct=targetGPA>0?Math.min(100,Math.round((gpa/targetGPA)*100)):0;
+  $('h-track').textContent=onTrackPct+'%';
+  $('h-track-bar').style.width=onTrackPct+'%';
+  const atRisk=courses.filter(c=>courseGrade(c,courseWeights).pct<75).length;
+  const risk=atRisk>=2?'HIGH':atRisk===1?'MEDIUM':'LOW';
+  $('h-risk').textContent=risk;
+  $('h-risk-badge').innerHTML=`<span class="risk-badge risk-${risk.toLowerCase()}">${risk}</span>`;
+  const ranked=courses.map((c,i)=>({...c,impact:computeImpact(c,courseWeights,scale,courseCredits),_i:i})).sort((a,b)=>b.impact-a.impact);
+  const top=ranked[0];
+  if(top&&top.impact>0){
+    $('home-priority').style.display='grid';
+    $('h-priority-name').textContent=top.name;
+    const {pct}=courseGrade(top,courseWeights);
+    $('h-priority-desc').textContent=`Currently ${pct.toFixed(1)}% — highest leverage on your overall GPA.`;
+  } else { $('home-priority').style.display='none'; }
+  let totalDone=0,totalPend=0;
+  courses.forEach(c=>Object.values(c.categories||{}).forEach(cat=>cat.items?.forEach(i=>i.done&&i.score!==null?totalDone++:totalPend++)));
+  $('h-courses').textContent=courses.length;
+  $('h-credits').textContent=courses.reduce((s,c)=>s+((courseCredits&&courseCredits[c.sectionId||c.id])??c.credits??3),0)+' credit-hours';
+  $('h-done').textContent=totalDone; $('h-pending').textContent=totalPend+' pending';
+  $('h-scale').textContent=scale.toFixed(1); $('h-scale-sub').textContent=scale===4.8?'AP weighted':'Regular';
+  $('home-eyebrow').textContent=`SPRING 2025 · ${courses.length} COURSES`;
+  $('h-course-count').textContent=courses.length+' ACTIVE';
+  const list=$('home-course-list'); list.innerHTML='';
+  ranked.forEach((c,idx)=>{
+    const {pct,possible}=courseGrade(c,courseWeights);
+    const cr=(courseCredits&&courseCredits[c.sectionId||c.id])??c.credits??3;
+    const color=courseColor(c._i||idx);
+    list.innerHTML+=`<div class="course-row">
+      <div class="course-dot" style="background:${color}"></div>
+      <div class="course-info"><div class="course-name">${c.name}</div><div class="course-code">${c.code||''} · ${cr}cr</div></div>
+      <div class="course-stat"><div class="stat-val">${possible>0?pct.toFixed(1):'—'}</div><div class="stat-lbl">${possible>0?pctToLetter(pct):'NO DATA'}</div></div>
+      <div class="course-stat green"><div class="stat-val">${gradeToGPA(pct,scale).toFixed(1)}</div><div class="stat-lbl">GPA</div></div>
+      <div class="course-stat gold"><div class="stat-val">${c.impact.toFixed(0)}</div><div class="stat-lbl">IMPACT</div></div>
+    </div>`;
+  });
+};
+
+// ── COURSES ──
+const renderCourses = () => {
+  const {courses,courseWeights,courseCredits}=appState;
+  const list=$('courses-list'); list.innerHTML='';
+  if(!courses.length){list.innerHTML='<div style="color:var(--ink3);font-family:var(--mono);font-size:11px;letter-spacing:2px;padding:20px 0">NO COURSES LOADED — OPEN POWERSCHOOL WITH THE EXTENSION</div>';return;}
+  courses.forEach((c,i)=>{
+    const {pct,possible}=courseGrade(c,courseWeights);
+    const cr=(courseCredits&&courseCredits[c.sectionId||c.id])??c.credits??3;
+    const color=courseColor(i);
+    const cats=Object.entries(c.categories||{});
+    let bodyHtml='';
+    cats.forEach(([catName,cat])=>{
+      const items=(cat.items||[]);
+      const graded=items.filter(i=>i.done&&i.score!==null);
+      const catEarned=graded.reduce((s,i)=>s+i.score,0);
+      const catPoss=graded.reduce((s,i)=>s+i.max,0);
+      const catPct=catPoss>0?(catEarned/catPoss)*100:null;
+      const w=courseWeights[c.sectionId||c.id];
+      bodyHtml+=`<div class="cat-row"><div><div class="cat-name">${catName}</div></div><div style="display:flex;align-items:center;gap:12px">${w&&w[catName]?`<span class="cat-weight">${w[catName]}%</span>`:'<span class="cat-weight" style="color:var(--ink3)">NOT SET</span>'}<div class="cat-pct">${catPct!==null?catPct.toFixed(1)+'%':'—'}</div></div></div>`;
+      items.slice(0,8).forEach(item=>{
+        const status=item.missing?'MISS':item.late?'LATE':item.done?'DONE':'PEND';
+        bodyHtml+=`<div class="asgn-row" style="padding-left:8px">
+          <div class="asgn-check ${item.done?'done':''}">${item.done?'<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--paper)" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>':''}</div>
+          <div class="asgn-name">${item.name}</div>
+          <div class="asgn-score">${item.score!==null?item.score:'—'}</div>
+          <div style="color:var(--ink3);font-size:11px">/</div>
+          <div class="asgn-score" style="color:var(--ink3)">${item.max}</div>
+          <div class="asgn-status ${status.toLowerCase()}">${status}</div>
+        </div>`;
+      });
+    });
+    const id='cc-'+i;
+    list.innerHTML+=`<div class="course-card">
+      <div class="course-card-header" onclick="toggleCourse('${id}')">
+        <div class="course-color-block" style="background:${color}"><div class="course-init">${c.name[0]}</div></div>
+        <div><div class="course-card-name">${c.name}</div><div class="course-card-meta">${cr}CR · ${Object.keys(c.categories||{}).length} CATEGORIES</div></div>
+        <div class="course-card-stat"><div class="sv">${possible>0?pct.toFixed(1):'—'}</div><div class="sl">${possible>0?pctToLetter(pct):'NO DATA'}</div></div>
+        <div class="course-card-stat"><div class="sv" style="color:var(--gold)">${gradeToGPA(pct,appState.scale).toFixed(1)}</div><div class="sl">GPA PTS</div></div>
+        <svg class="chevron" id="chev-${id}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="course-card-body" id="${id}">${bodyHtml}</div>
+    </div>`;
+  });
+};
+window.toggleCourse = id => {
+  const body=$(id), chev=$('chev-'+id);
+  body.classList.toggle('open'); chev.classList.toggle('open');
+};
+
+// ── STRATEGY ──
+const renderStrategy = () => {
+  const {courses,courseWeights,courseCredits,scale}=appState;
+  const ranked=courses.map((c,i)=>({...c,impact:computeImpact(c,courseWeights,scale,courseCredits),...courseGrade(c,courseWeights),_i:i})).sort((a,b)=>b.impact-a.impact);
+  const maxImp=ranked[0]?.impact||1;
+  const list=$('strategy-list'); list.innerHTML='';
+  ranked.forEach((c,i)=>{
+    const color=courseColor(c._i);
+    const bounds=[60,63,68,70,73,78,80,83,88,90,93,98];
+    const next=bounds.find(b=>b>c.pct);
+    const distStr=next?`. ${(next-c.pct).toFixed(1)}pt to ${pctToLetter(next)}`:'. A+ ceiling';
+    list.innerHTML+=`<div class="strategy-row">
+      <div class="strategy-num ${i===0?'top':''}">${String(i+1).padStart(2,'0')}</div>
+      <div style="width:4px;align-self:stretch;background:${color};border-radius:2px"></div>
+      <div>
+        <div style="font-family:var(--display);font-size:20px;letter-spacing:1.5px;color:var(--ink1)">${c.name}</div>
+        <div style="font-family:var(--body);font-size:12px;color:var(--ink2);margin-top:2px">${c.pct>0?c.pct.toFixed(1)+'% — '+pctToLetter(c.pct)+distStr:'No data yet'}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:var(--display);font-size:28px;color:var(--ink1)">${c.impact.toFixed(0)}</div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--ink3);letter-spacing:1px">IMPACT</div>
+      </div>
+      <div>
+        <div class="strategy-bar-wrap"><div class="strategy-bar-fill" style="width:${maxImp>0?(c.impact/maxImp*100).toFixed(0):0}%;background:${color}"></div></div>
+      </div>
+    </div>`;
+  });
+  if(!ranked.length)list.innerHTML='<div style="padding:24px;color:var(--ink3);font-family:var(--mono);font-size:10px;letter-spacing:2px">NO COURSES LOADED</div>';
+};
+
+// ── SIMULATOR ──
+const renderSimulator = () => {
+  const {courses,courseWeights,courseCredits,scale,simAdjustments}=appState;
+  const baseGPA=computeGPA(courses,courseWeights,scale,courseCredits);
+  $('sim-current').textContent=baseGPA.toFixed(2);
+  // Build sim courses with adjustments
+  const simCourses=courses.map(c=>({...c,categories:Object.fromEntries(Object.entries(c.categories||{}).map(([k,cat])=>([k,{...cat,items:(cat.items||[]).map(i=>{
+    if(i.done&&i.score!==null)return i;
+    const adj=simAdjustments[i.id];
+    return adj!=null?{...i,score:adj/100*i.max,done:true}:i;
+  })}])))}));
+  const simGPA=computeGPA(simCourses,courseWeights,scale,courseCredits);
+  const delta=simGPA-baseGPA;
+  $('sim-projected').textContent=simGPA.toFixed(2);
+  const dEl=$('sim-delta'); dEl.textContent=(delta>=0?'+':'')+delta.toFixed(2);
+  dEl.className='sim-block-val '+(delta>0.005?'pos':delta<-0.005?'neg':'');
+  const list=$('sim-list'); list.innerHTML='';
+  courses.forEach((c,ci)=>{
+    const remaining=[];
+    Object.entries(c.categories||{}).forEach(([cat,catObj])=>{
+      (catObj.items||[]).forEach(i=>{ if(!i.done||i.score===null)remaining.push({...i,cat}); });
+    });
+    if(!remaining.length)return;
+    list.innerHTML+=`<div class="card" style="margin-bottom:14px"><div class="card-accent-top"></div>
+      <div style="font-family:var(--display);font-size:18px;letter-spacing:1.5px;color:var(--ink1);margin-bottom:12px">${c.name}</div>
+      ${remaining.map(item=>{
+        const val=simAdjustments[item.id];
+        return `<div class="slider-row">
+          <div class="slider-meta">
+            <div class="slider-name">${item.name}</div>
+            <div class="slider-pct">${val!=null?val+'%':'—'}</div>
+          </div>
+          <div class="slider-sub">${item.cat} · ${item.max}pt</div>
+          <input class="range-slider" type="range" min="0" max="100" value="${val??85}" data-itemid="${item.id}" oninput="window.updateSim('${item.id}',parseInt(this.value))"/>
+        </div>`;
+      }).join('')}
+    </div>`;
+  });
+  if(!courses.length)list.innerHTML='<div style="color:var(--ink3);font-family:var(--mono);font-size:10px;letter-spacing:2px;padding:24px 0">NO COURSES LOADED</div>';
+};
+window.updateSim = (id,val) => {
+  appState.simAdjustments[id]=val;
+  renderSimulator();
+};
+
+// ── INSIGHTS ──
+const renderInsights = () => {
+  const {courses,courseWeights}=appState;
+  const out=[];
+  courses.forEach(c=>{
+    const allScores=Object.values(c.categories||{}).flatMap(cat=>(cat.items||[]).filter(i=>i.done&&i.score!==null).map(i=>(i.score/i.max)*100));
+    if(allScores.length>=3){
+      const mean=allScores.reduce((a,b)=>a+b,0)/allScores.length;
+      const sd=Math.sqrt(allScores.reduce((a,b)=>a+(b-mean)**2,0)/allScores.length);
+      if(sd>10)out.push({sev:sd>15?'high':'medium',kind:'VOLATILITY',color:sd>15?'#D97B3A':'#CBA135',text:`${c.name} shows high score variance (σ = ${sd.toFixed(1)}). Inconsistency suggests focus on fundamentals.`});
+    }
+    const {pct}=courseGrade(c,courseWeights);
+    const bounds=[63,68,70,73,78,80,83,88,90,93,98];
+    const above=bounds.slice().reverse().find(b=>pct>=b);
+    if(above&&pct-above<1.5)out.push({sev:pct-above<0.5?'high':'medium',kind:'BOUNDARY',color:pct-above<0.5?'#D97B3A':'#CBA135',text:`${c.name} is only ${(pct-above).toFixed(1)} points above ${pctToLetter(above)}. One bad score could drop a letter.`});
+    const missing=Object.values(c.categories||{}).flatMap(cat=>(cat.items||[]).filter(i=>i.missing)).length;
+    if(missing>0)out.push({sev:'high',kind:'MISSING',color:'#D97B3A',text:`${c.name} has ${missing} missing ${missing===1?'assignment':'assignments'}. Counts as zero unless turned in.`});
+  });
+  const list=$('insights-list'); list.innerHTML='';
+  if(!out.length){
+    list.innerHTML='<div class="card"><div class="card-accent-top"></div><div style="font-family:var(--display);font-size:22px;letter-spacing:2px;color:var(--ink1);margin-bottom:4px">NOTHING CONCERNING YET</div><div style="font-size:13px;color:var(--ink2)">No volatility, no boundary risks, no missing work.</div></div>';
+  } else {
+    out.forEach(ins=>{
+      list.innerHTML+=`<div class="insight-card">
+        <div class="insight-severity" style="background:${ins.color}"></div>
+        <div><div class="insight-tag" style="color:${ins.color}">${ins.sev.toUpperCase()} · ${ins.kind}</div><div class="insight-text">${ins.text}</div></div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${ins.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
+      </div>`;
+    });
+  }
+};
+
+// ── GEMINI CHAT ──
+let chatHistory=[{role:'assistant',text:'Commander, I\'m your AI academic advisor. Ask me anything about your grades, strategy, or how to dominate this semester.'}];
+window.sendChat = async () => {
+  const input=$('chat-input'); const text=input.value.trim(); if(!text)return;
+  input.value=''; chatHistory.push({role:'user',text});
+  renderChat();
+  const {courses,targetGPA,scale,courseWeights,courseCredits}=appState;
+  const gpa=computeGPA(courses,courseWeights,scale,courseCredits);
+  const sysPrompt=`You are Grade Commander, a sharp military-style AI academic advisor. Be concise, tactical, and motivating. The student's data: GPA: ${gpa.toFixed(2)}/${scale}, Target: ${targetGPA}. Courses: ${courses.map(c=>`${c.name}: ${courseGrade(c,courseWeights).pct.toFixed(1)}%`).join(', ')||'None loaded'}. Keep responses under 100 words.`;
+  try {
+    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({system_instruction:{parts:[{text:sysPrompt}]},contents:chatHistory.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.text}]}))})
+    });
+    const data=await res.json();
+    const reply=data?.candidates?.[0]?.content?.parts?.[0]?.text||'No response.';
+    chatHistory.push({role:'assistant',text:reply});
+  } catch(e){ chatHistory.push({role:'assistant',text:'⚠️ Connection failed.'}); }
+  renderChat();
+};
+const renderChat = () => {
+  const el=$('chat-messages'); el.innerHTML='';
+  chatHistory.forEach(m=>{
+    el.innerHTML+=`<div class="chat-msg ${m.role}"><div class="chat-bubble">${m.text}</div></div>`;
+  });
+  el.scrollTop=el.scrollHeight;
+};
+
+// ── PROGRESS ──
+const renderProgress = () => {
+  const {courses,courseWeights,courseCredits,scale}=appState;
+  const allItems=[];
+  courses.forEach(c=>Object.values(c.categories||{}).forEach(cat=>(cat.items||[]).forEach(i=>{if(i.done&&i.score!==null&&i.duedate)allItems.push({...i,date:i.duedate});})));
+  allItems.sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const points=allItems.map((item,idx)=>{
+    const snap=courses.map(c=>({...c,categories:Object.fromEntries(Object.entries(c.categories||{}).map(([k,cat])=>([k,{...cat,items:(cat.items||[]).map(i=>(!i.done||i.score===null||!i.duedate||new Date(i.duedate)>new Date(item.date))?{...i,done:false,score:null}:i)}])))}));
+    return {date:item.date,gpa:computeGPA(snap,courseWeights,scale,courseCredits),idx};
+  });
+  const canvas=$('progress-chart');
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  canvas.width=canvas.offsetWidth||800; canvas.height=260;
+  const W=canvas.width,H=canvas.height,pad={t:20,r:20,b:40,l:50};
+  ctx.clearRect(0,0,W,H);
+  if(!points.length){
+    ctx.fillStyle='rgba(86,102,68,0.6)'; ctx.font='11px JetBrains Mono,monospace'; ctx.textAlign='center';
+    ctx.fillText('NOT ENOUGH DATA YET',W/2,H/2); return;
+  }
+  const minGpa=Math.max(0,Math.min(...points.map(p=>p.gpa))-0.2);
+  const maxGpa=Math.min(scale,Math.max(...points.map(p=>p.gpa))+0.2);
+  const xScale=i=>(W-pad.l-pad.r)/(points.length-1||1)*i+pad.l;
+  const yScale=v=>(H-pad.t-pad.b)*(1-(v-minGpa)/(maxGpa-minGpa||1))+pad.t;
+  // Gradient fill
+  const grad=ctx.createLinearGradient(0,pad.t,0,H-pad.b);
+  grad.addColorStop(0,'rgba(203,161,53,0.3)'); grad.addColorStop(1,'rgba(203,161,53,0.0)');
+  ctx.beginPath(); ctx.moveTo(xScale(0),yScale(points[0].gpa));
+  points.forEach((p,i)=>ctx.lineTo(xScale(i),yScale(p.gpa)));
+  ctx.lineTo(xScale(points.length-1),H-pad.b); ctx.lineTo(pad.l,H-pad.b); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+  // Line
+  ctx.beginPath(); ctx.strokeStyle='#CBA135'; ctx.lineWidth=2.5; ctx.lineJoin='round';
+  points.forEach((p,i)=>i===0?ctx.moveTo(xScale(i),yScale(p.gpa)):ctx.lineTo(xScale(i),yScale(p.gpa)));
+  ctx.stroke();
+  // Dot at end
+  const last=points[points.length-1];
+  ctx.beginPath(); ctx.arc(xScale(points.length-1),yScale(last.gpa),5,0,Math.PI*2);
+  ctx.fillStyle='#CBA135'; ctx.fill();
+  // Y labels
+  ctx.fillStyle='rgba(86,102,68,0.8)'; ctx.font='9px JetBrains Mono,monospace'; ctx.textAlign='right';
+  [minGpa,maxGpa].forEach(v=>ctx.fillText(v.toFixed(1),pad.l-6,yScale(v)+3));
+};
+
+// ── SETTINGS ──
+const renderSettings = () => {
+  const {scale,targetGPA,dropLowest,useCurves,semesterMode}=appState;
+  $('scale-43').classList.toggle('active',scale!==4.8);
+  $('scale-48').classList.toggle('active',scale===4.8);
+  $('target-slider').value=targetGPA; $('target-display').textContent=targetGPA.toFixed(2);
+  $('tog-drop').classList.toggle('on',!!dropLowest);
+  $('tog-curves').classList.toggle('on',!!useCurves);
+  $('tog-sem').classList.toggle('on',!!semesterMode);
+};
+window.setScale = v => { appState.scale=v; saveToFirebase(); renderSettings(); };
+window.updateTarget = v => { appState.targetGPA=parseFloat(v); $('target-display').textContent=parseFloat(v).toFixed(2); saveToFirebase(); };
+window.toggleSetting = key => { appState[key]=!appState[key]; saveToFirebase(); renderSettings(); };
+window.setTerm = t => {
+  appState.term=t;
+  $('term-s2').classList.toggle('active',t==='S2');
+  $('term-y1').classList.toggle('active',t==='Y1');
+  saveToFirebase();
+};
+</script>
+</body>
+</html>
