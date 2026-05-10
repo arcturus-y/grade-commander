@@ -585,7 +585,7 @@ nav.sidebar-nav { flex: 1; padding: 8px 0; }
         <div class="chatbot-header">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#CBA135" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/></svg>
           <span class="chatbot-title">AI ADVISOR</span>
-          <span class="chatbot-status">GEMINI · ONLINE</span>
+          <span class="chatbot-status">GROQ · ONLINE</span>
         </div>
         <div class="chat-messages" id="chat-messages">
           <div class="chat-msg assistant"><div class="chat-bubble">Commander, I'm your AI academic advisor. Ask me anything about your grades, strategy, or how to dominate this semester.</div></div>
@@ -678,7 +678,6 @@ const firebaseConfig = {
   measurementId: "G-8CH4NS7M6M"
 };
 
-const GEMINI_KEY = "AIzaSyCc6-SHOVSpCl-urK-oUqIfQ8IBSxzIUbw";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -1020,12 +1019,20 @@ window.sendChat = async () => {
   const gpa=computeGPA(courses,courseWeights,scale,courseCredits);
   const sysPrompt=`You are Grade Commander, a sharp military-style AI academic advisor. Be concise, tactical, and motivating. The student's data: GPA: ${gpa.toFixed(2)}/${scale}, Target: ${targetGPA}. Courses: ${courses.map(c=>`${c.name}: ${courseGrade(c,courseWeights).pct.toFixed(1)}%`).join(', ')||'None loaded'}. Keep responses under 100 words.`;
   try {
-    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({system_instruction:{parts:[{text:sysPrompt}]},contents:chatHistory.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.text}]}))})
+    const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer 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'},
+      body:JSON.stringify({
+        model:'llama3-8b-8192',
+        max_tokens:200,
+        messages:[
+          {role:'system',content:sysPrompt},
+          ...chatHistory.map(m=>({role:m.role==='assistant'?'assistant':'user',content:m.text}))
+        ]
+      })
     });
     const data=await res.json();
-    const reply=data?.candidates?.[0]?.content?.parts?.[0]?.text||'No response.';
+    const reply=data.choices?.[0]?.message?.content||'No response.';
     chatHistory.push({role:'assistant',text:reply});
   } catch(e){ chatHistory.push({role:'assistant',text:'⚠️ Connection failed.'}); }
   renderChat();
