@@ -1019,9 +1019,9 @@ window.sendChat = async () => {
   const gpa=computeGPA(courses,courseWeights,scale,courseCredits);
   const sysPrompt=`You are Grade Commander, a sharp military-style AI academic advisor. Be concise, tactical, and motivating. The student's data: GPA: ${gpa.toFixed(2)}/${scale}, Target: ${targetGPA}. Courses: ${courses.map(c=>`${c.name}: ${courseGrade(c,courseWeights).pct.toFixed(1)}%`).join(', ')||'None loaded'}. Keep responses under 100 words.`;
   try {
-    const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer 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'},
+const res=await fetch('https://aged-limit-3051.raychangstudios.workers.dev',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         model:'llama-3.1-8b-instant',
         max_tokens:200,
