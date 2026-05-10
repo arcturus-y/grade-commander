@@ -1021,9 +1021,9 @@ window.sendChat = async () => {
   try {
     const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer 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'},
+      headers:{'Content-Type':'application/json','Authorization':'Bearer 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'},
       body:JSON.stringify({
-        model:'llama3-8b-8192',
+        model:'llama-3.1-8b-instant',
         max_tokens:200,
         messages:[
           {role:'system',content:sysPrompt},
