@@ -664,48 +664,125 @@ const db = getFirestore(app);
 
 window.appState = {
   courses: [], targetGPA: 3.5, scale: 4.3,
-  courseWeights: {}, courseCredits: {}, term: 'S2',
+  courseWeights: {}, courseCredits: {}, courseScales: {}, term: 'S2',
   dropLowest: false, useCurves: false, semesterMode: true,
-  simAdjustments: {}
+  simAdjustments: {}, simFilter: null
 };
 let unsubFS = null;
 
 const $ = id => document.getElementById(id);
+// ── CORE CALCULATIONS — exact port of the-curve (KF/qF/JF/MF/GF/FF/NF/PF) ──
+
 const pctToLetter = p => p>=98?'A+':p>=93?'A':p>=90?'A-':p>=88?'B+':p>=83?'B':p>=80?'B-':p>=78?'C+':p>=73?'C':p>=70?'C-':p>=68?'D+':p>=63?'D':p>=60?'D-':'F';
-const gradeToGPA = (p,s=4.3) => {
-  const ap=s===4.8;
+
+// MF — grade % → GPA points, respecting per-course scale
+const gradeToGPA = (p, s=4.3) => {
+  const ap = s===4.8;
   if(p>=98)return ap?4.8:4.3; if(p>=93)return ap?4.5:4; if(p>=90)return ap?4.2:3.7;
   if(p>=88)return ap?3.8:3.3; if(p>=83)return ap?3.5:3; if(p>=80)return ap?3.2:2.7;
   if(p>=78)return ap?2.8:2.3; if(p>=73)return ap?2.5:2; if(p>=70)return ap?2.2:1.7;
   if(p>=68)return ap?1.8:1.3; if(p>=63)return ap?1.5:1; if(p>=60)return ap?1.2:.7; return 0;
 };
-const courseGrade = (c, weights) => {
+
+// PF — get weight map for a course (null if none saved)
+const getWeightsFor = (c, courseWeights) => courseWeights[c.sectionId||c.id] || null;
+
+// FF — credits for a course
+const getCredits = (c, courseCredits) => {
+  const id = c.sectionId||c.id;
+  return (courseCredits&&courseCredits[id]!=null) ? courseCredits[id] : (c.credits==null?3:c.credits);
+};
+
+// NF — scale for a course (per-course override, else global)
+const getCourseScale = (c, courseScales, globalScale=4.3) => {
+  if(!c) return globalScale;
+  const id = c.sectionId||c.id;
+  return (courseScales&&courseScales[id]!=null) ? courseScales[id] : globalScale;
+};
+
+// GF — true only if weights exist for every category AND sum to 100 within 0.01
+const hasValidWeights = (c, courseWeights) => {
+  const w = getWeightsFor(c, courseWeights);
+  if(!w) return false;
   const cats = Object.keys(c.categories||{});
-  if(!cats.length) return {pct:0,possible:0};
-  let earned=0, possible=0;
-  cats.forEach(cat=>{
-    (c.categories[cat].items||[]).filter(i=>i.done&&i.score!==null).forEach(i=>{earned+=i.score;possible+=i.max;});
+  if(cats.length===0) return true;
+  if(!cats.every(cat => w[cat]!=null)) return false;
+  const total = Object.values(w).reduce((s,v)=>s+(parseFloat(v)||0), 0);
+  return Math.abs(total - 100) < 0.01;
+};
+
+// KF — courseGrade: weighted category averages when valid weights exist, else simple point totals
+const courseGrade = (c, courseWeights={}) => {
+  const w = getWeightsFor(c, courseWeights);
+  const cats = Object.keys(c.categories||{});
+  if(cats.length===0) return {currentPct:0, possibleNow:0, remainingWeight:0, hasWeights:false};
+
+  if(w && hasValidWeights(c, courseWeights)) {
+    // Weighted path: category weighted average
+    let weightedSum=0, weightedHave=0, weightedMissing=0;
+    cats.forEach(cat => {
+      const catData = c.categories[cat];
+      const catW = (parseFloat(w[cat])||0) / 100;
+      const graded = (catData.items||[]).filter(i=>i.done&&i.score!==null);
+      if(graded.length===0) { weightedMissing += catW; return; }
+      const earned = graded.reduce((s,i)=>s+i.score, 0);
+      const max    = graded.reduce((s,i)=>s+i.max,   0);
+      const catPct = max>0 ? earned/max*100 : 0;
+      weightedSum  += catPct * catW;
+      weightedHave += catW;
+    });
+    return {
+      currentPct:    weightedHave>0 ? weightedSum/weightedHave : 0,
+      possibleNow:   weightedHave*100,
+      remainingWeight: weightedMissing*100,
+      hasWeights:    true,
+    };
+  }
+
+  // Fallback path: simple point totals (no valid weights)
+  let totalItems=0, gradedItems=0, earned=0, possible=0;
+  cats.forEach(cat => {
+    (c.categories[cat].items||[]).forEach(i => {
+      totalItems++;
+      if(i.done&&i.score!==null) { earned+=i.score; possible+=i.max; gradedItems++; }
+    });
   });
-  return {pct: possible>0?(earned/possible)*100:0, possible};
+  const completionPct = totalItems>0 ? gradedItems/totalItems*100 : 0;
+  return {
+    currentPct:    possible>0 ? earned/possible*100 : 0,
+    possibleNow:   completionPct,
+    remainingWeight: 100-completionPct,
+    hasWeights:    false,
+  };
 };
-const computeGPA = (courses, weights, scale, credits) => {
-  let tp=0,tc=0;
-  courses.forEach(c=>{
-    const {pct,possible}=courseGrade(c,weights);
-    if(!possible)return;
-    const cr=(credits&&credits[c.sectionId||c.id])??c.credits??3;
-    tp+=gradeToGPA(pct,scale)*cr; tc+=cr;
+
+// qF — weighted-average GPA across all courses
+const computeGPA = (courses, courseWeights={}, scale=4.3, courseCredits={}, courseScales={}) => {
+  let tp=0, tc=0;
+  courses.forEach(c => {
+    const {currentPct, possibleNow} = courseGrade(c, courseWeights);
+    if(possibleNow<=0) return;
+    const cr  = getCredits(c, courseCredits);
+    const sc  = getCourseScale(c, courseScales, scale);
+    tp += gradeToGPA(currentPct, sc) * cr;
+    tc += cr;
   });
-  return tc>0?tp/tc:0;
+  return tc>0 ? tp/tc : 0;
 };
-const computeImpact = (c,weights,scale,credits) => {
-  const {pct,possible}=courseGrade(c,weights);
-  if(!possible)return 0;
-  const bounds=[60,63,68,70,73,78,80,83,88,90,93,98];
-  const next=bounds.find(b=>b>pct); if(!next)return 0;
-  const cr=(credits&&credits[c.sectionId||c.id])??c.credits??3;
-  return (gradeToGPA(next,scale)-gradeToGPA(pct,scale))/(next-pct+0.5)*cr*100;
+
+// JF — marginal GPA impact of improving this course to the next letter boundary
+const computeImpact = (c, courseWeights={}, scale=4.3, courseCredits={}, courseScales={}) => {
+  const {currentPct, possibleNow} = courseGrade(c, courseWeights);
+  if(possibleNow<=0) return 0;
+  const next = [60,63,68,70,73,78,80,83,88,90,93,98].find(b=>b>currentPct);
+  if(!next) return 0;
+  const sc   = getCourseScale(c, courseScales, scale);
+  const cr   = getCredits(c, courseCredits);
+  const gain = gradeToGPA(next,sc) - gradeToGPA(currentPct,sc);
+  const dist = next - currentPct;
+  return dist<=0 ? 0 : gain/(dist+0.5)*cr*100;
 };
+
 const courseColor = i => ['#e8503a','#d4a373','#5c8d89','#a07cbc','#3d6b4d','#c4452f','#7a8b99','#b8763d'][i%8];
 
 window.saveToFirebase = async () => {
@@ -779,8 +856,8 @@ window.renderAll = () => {
 };
 
 const renderHome = () => {
-  const {courses,targetGPA,scale,courseWeights,courseCredits}=appState;
-  const gpa=computeGPA(courses,courseWeights,scale,courseCredits);
+  const {courses,targetGPA,scale,courseWeights,courseCredits,courseScales}=appState;
+  const gpa=computeGPA(courses,courseWeights,scale,courseCredits,courseScales);
   const noCourses=courses.length===0;
   $('home-nops').style.display=noCourses?'flex':'none';
   $('h-gpa').textContent=gpa>0?gpa.toFixed(2):'—';
@@ -789,17 +866,17 @@ const renderHome = () => {
   const onTrackPct=targetGPA>0?Math.min(100,Math.round((gpa/targetGPA)*100)):0;
   $('h-track').textContent=onTrackPct+'%';
   $('h-track-bar').style.width=onTrackPct+'%';
-  const atRisk=courses.filter(c=>courseGrade(c,courseWeights).pct<75).length;
+  const atRisk=courses.filter(c=>courseGrade(c,courseWeights).currentPct<75).length;
   const risk=atRisk>=2?'HIGH':atRisk===1?'MEDIUM':'LOW';
   $('h-risk').textContent=risk;
   $('h-risk-badge').innerHTML=`<span class="risk-badge risk-${risk.toLowerCase()}">${risk}</span>`;
-  const ranked=courses.map((c,i)=>({...c,impact:computeImpact(c,courseWeights,scale,courseCredits),_i:i})).sort((a,b)=>b.impact-a.impact);
+  const ranked=courses.map((c,i)=>({...c,impact:computeImpact(c,courseWeights,scale,courseCredits,courseScales),_i:i})).sort((a,b)=>b.impact-a.impact);
   const top=ranked[0];
   if(top&&top.impact>0){
     $('home-priority').style.display='grid';
     $('h-priority-name').textContent=top.name;
-    const {pct}=courseGrade(top,courseWeights);
-    $('h-priority-desc').textContent=`Currently ${pct.toFixed(1)}% — highest leverage on your overall GPA.`;
+    const {currentPct:topPct}=courseGrade(top,courseWeights);
+    $('h-priority-desc').textContent=`Currently ${topPct.toFixed(1)}% — highest leverage on your overall GPA.`;
   } else { $('home-priority').style.display='none'; }
   let totalDone=0,totalPend=0;
   courses.forEach(c=>Object.values(c.categories||{}).forEach(cat=>cat.items?.forEach(i=>i.done&&i.score!==null?totalDone++:totalPend++)));
@@ -811,8 +888,8 @@ const renderHome = () => {
   $('h-course-count').textContent=courses.length+' ACTIVE';
   const list=$('home-course-list'); list.innerHTML='';
   ranked.forEach((c,idx)=>{
-    const {pct,possible}=courseGrade(c,courseWeights);
-    const cr=(courseCredits&&courseCredits[c.sectionId||c.id])??c.credits??3;
+    const pct=c.currentPct||0; const possible=c.possibleNow||0;
+    const cr=getCredits(c,courseCredits);
     const color=courseColor(c._i||idx);
     list.innerHTML+=`<div class="course-row">
       <div class="course-dot" style="background:${color}"></div>
@@ -824,24 +901,113 @@ const renderHome = () => {
   });
 };
 
+// Returns true if a course has no weights configured at all
+const courseNeedsSetup = (c, courseWeights) => !hasValidWeights(c, courseWeights);
+
 const renderCourses = () => {
-  const {courses,courseWeights,courseCredits}=appState;
+  const {courses,courseWeights,courseCredits,courseScales,scale}=appState;
   const list=$('courses-list'); list.innerHTML='';
   if(!courses.length){list.innerHTML='<div style="color:var(--ink3);font-family:var(--mono);font-size:11px;letter-spacing:2px;padding:20px 0">NO COURSES LOADED — OPEN POWERSCHOOL WITH THE EXTENSION</div>';return;}
+
+  // Show setup banner if any courses are unconfigured
+  const unconfigured = courses.filter(c => courseNeedsSetup(c, courseWeights));
+  if (unconfigured.length > 0) {
+    list.innerHTML += `<div class="card" style="margin-bottom:16px;display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center">
+      <div class="card-accent"></div>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div>
+        <div style="font-family:var(--display);font-size:16px;line-height:1.2;color:var(--ink1)">${unconfigured.length} of ${courses.length} courses need weight setup</div>
+        <div style="font-size:12px;font-weight:500;color:var(--ink2);margin-top:3px">Expand each course below and set category weights so GPA calculations are accurate.</div>
+      </div>
+    </div>`;
+  }
+
   courses.forEach((c,i)=>{
-    const {pct,possible}=courseGrade(c,courseWeights);
-    const cr=(courseCredits&&courseCredits[c.sectionId||c.id])??c.credits??3;
+    const {currentPct:pct,possibleNow:possible}=courseGrade(c,courseWeights);
+    const cr=getCredits(c,courseCredits);
     const color=courseColor(i);
     const cats=Object.entries(c.categories||{});
+    const cid = c.sectionId||c.id;
+    const needsSetup = courseNeedsSetup(c, courseWeights);
     let bodyHtml='';
+
+    // Weight setup section
+    const suggested = c.suggestedWeights || null;
+    const currentW = courseWeights[cid] || {};
+    const totalWeight = Object.values(currentW).reduce((s,v)=>s+(parseFloat(v)||0), 0);
+    const weightsValid = Math.abs(totalWeight-100) < 0.01 && cats.every(([catName])=>currentW[catName]!=null);
+    const currentCourseScale = getCourseScale(c, courseScales, scale);
+    const currentCourseCredits = getCredits(c, courseCredits);
+
+    bodyHtml += `<div style="padding:10px 0 14px;border-bottom:1px solid var(--border-soft)">
+
+      <!-- Credits + Scale row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--ink3);margin-bottom:5px">CREDITS</div>
+          <div style="display:flex;gap:5px">
+            ${[1,1.5,2,3,4,5].map(v=>`<button onclick="window.setCourseCredits('${cid}',${v})"
+              style="padding:5px 8px;border-radius:4px;font-family:var(--mono);font-size:9px;letter-spacing:1px;border:1px solid var(--border);cursor:pointer;
+              background:${currentCourseCredits===v?'linear-gradient(135deg,var(--gold),#8a6d10)':'var(--bg3)'};
+              color:${currentCourseCredits===v?'var(--bg)':'var(--ink2)'}">${v}</button>`).join('')}
+          </div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--ink3);margin-bottom:5px">GPA SCALE</div>
+          <div style="display:flex;gap:5px">
+            <button onclick="window.setCourseScale('${cid}',4.3)"
+              style="padding:5px 10px;border-radius:4px;font-family:var(--mono);font-size:9px;letter-spacing:1px;border:1px solid var(--border);cursor:pointer;
+              background:${currentCourseScale===4.3?'linear-gradient(135deg,var(--gold),#8a6d10)':'var(--bg3)'};
+              color:${currentCourseScale===4.3?'var(--bg)':'var(--ink2)'}">4.3 Regular</button>
+            <button onclick="window.setCourseScale('${cid}',4.8)"
+              style="padding:5px 10px;border-radius:4px;font-family:var(--mono);font-size:9px;letter-spacing:1px;border:1px solid var(--border);cursor:pointer;
+              background:${currentCourseScale===4.8?'linear-gradient(135deg,var(--gold),#8a6d10)':'var(--bg3)'};
+              color:${currentCourseScale===4.8?'var(--bg)':'var(--ink2)'}">4.8 AP/IB</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category weights -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--ink3)">
+          CATEGORY WEIGHTS
+          <span style="color:${weightsValid?'var(--green2)':totalWeight>0?'var(--alert)':'var(--ink3)'}">
+            · ${totalWeight.toFixed(0)}% TOTAL${weightsValid?' ✓':''}
+          </span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${suggested?`<span style="font-family:var(--mono);font-size:8px;color:var(--ink3)">AUTO-DETECTED</span>
+          <button onclick="window.applyWeights('${cid}',${JSON.stringify(suggested).replace(/"/g,'&quot;')})"
+            style="background:linear-gradient(135deg,var(--gold),#8a6d10);border:none;border-radius:4px;padding:4px 10px;font-family:var(--mono);font-size:8px;letter-spacing:1.5px;color:var(--bg);cursor:pointer">APPLY</button>`:''}
+        </div>
+      </div>
+      ${cats.map(([catName])=>{
+        const val = currentW[catName]!=null ? currentW[catName] : '';
+        const sugVal = suggested&&suggested[catName]!=null ? suggested[catName] : null;
+        return `<div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;margin-bottom:6px">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--ink1)">${catName}</div>
+            ${sugVal!=null?`<div style="font-family:var(--mono);font-size:8px;color:var(--ink3);margin-top:1px">suggested: ${sugVal}%</div>`:''}
+          </div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <input type="number" min="0" max="100" placeholder="—"
+              value="${val}"
+              style="width:54px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:4px 7px;font-family:var(--mono);font-size:12px;color:var(--ink1);text-align:right;outline:none"
+              onchange="window.setCatWeight('${cid}','${catName}',parseFloat(this.value)||0)"
+              onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--border)'"/>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--ink3)">%</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+
     cats.forEach(([catName,cat])=>{
       const items=(cat.items||[]);
       const graded=items.filter(i=>i.done&&i.score!==null);
       const catEarned=graded.reduce((s,i)=>s+i.score,0);
       const catPoss=graded.reduce((s,i)=>s+i.max,0);
       const catPct=catPoss>0?(catEarned/catPoss)*100:null;
-      const w=courseWeights[c.sectionId||c.id];
-      bodyHtml+=`<div class="cat-row"><div><div class="cat-name">${catName}</div></div><div style="display:flex;align-items:center;gap:12px">${w&&w[catName]?`<span class="cat-weight">${w[catName]}%</span>`:'<span class="cat-weight" style="color:var(--ink3)">NOT SET</span>'}<div class="cat-pct">${catPct!==null?catPct.toFixed(1)+'%':'—'}</div></div></div>`;
+      bodyHtml+=`<div class="cat-row"><div><div class="cat-name">${catName}</div></div><div style="display:flex;align-items:center;gap:12px">${currentW[catName]?`<span class="cat-weight">${currentW[catName]}%</span>`:'<span class="cat-weight" style="color:var(--ink3)">NOT SET</span>'}<div class="cat-pct">${catPct!==null?catPct.toFixed(1)+'%':'—'}</div></div></div>`;
       items.slice(0,8).forEach(item=>{
         const status=item.missing?'MISS':item.late?'LATE':item.done?'DONE':'PEND';
         bodyHtml+=`<div class="asgn-row" style="padding-left:8px">
@@ -855,12 +1021,12 @@ const renderCourses = () => {
       });
     });
     const id='cc-'+i;
-    list.innerHTML+=`<div class="course-card">
+    list.innerHTML+=`<div class="course-card" style="${needsSetup?'border-color:rgba(201,162,39,0.45)':''}">
       <div class="course-card-header" onclick="toggleCourse('${id}')">
         <div class="course-color-block" style="background:${color}"><div class="course-init">${c.name[0]}</div></div>
-        <div><div class="course-card-name">${c.name}</div><div class="course-card-meta">${cr}CR · ${Object.keys(c.categories||{}).length} CATEGORIES</div></div>
+        <div><div class="course-card-name">${c.name}</div><div class="course-card-meta">${cr}CR · ${Object.keys(c.categories||{}).length} CATEGORIES${needsSetup?' · <span style="color:var(--gold)">NEEDS SETUP</span>':''}</div></div>
         <div class="course-card-stat"><div class="sv">${possible>0?pct.toFixed(1):'—'}</div><div class="sl">${possible>0?pctToLetter(pct):'NO DATA'}</div></div>
-        <div class="course-card-stat"><div class="sv" style="color:var(--gold)">${gradeToGPA(pct,appState.scale).toFixed(1)}</div><div class="sl">GPA PTS</div></div>
+        <div class="course-card-stat"><div class="sv" style="color:var(--gold)">${gradeToGPA(pct,getCourseScale(c,courseScales,scale)).toFixed(1)}</div><div class="sl">GPA PTS</div></div>
         <svg class="chevron" id="chev-${id}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
       <div class="course-card-body" id="${id}">${bodyHtml}</div>
@@ -871,10 +1037,34 @@ window.toggleCourse = id => {
   const body=$(id), chev=$('chev-'+id);
   body.classList.toggle('open'); chev.classList.toggle('open');
 };
+window.setCatWeight = (cid, catName, val) => {
+  if(!appState.courseWeights[cid]) appState.courseWeights[cid]={};
+  appState.courseWeights[cid][catName]=val;
+  saveToFirebase();
+  renderCourses();
+  if(document.querySelector('.page.active')?.id==='page-home')renderHome();
+};
+window.applyWeights = (cid, suggested) => {
+  appState.courseWeights[cid] = {...(appState.courseWeights[cid]||{}), ...suggested};
+  saveToFirebase();
+  renderCourses();
+};
+window.setCourseCredits = (cid, val) => {
+  if(!appState.courseCredits) appState.courseCredits={};
+  appState.courseCredits[cid] = val;
+  saveToFirebase();
+  renderCourses();
+};
+window.setCourseScale = (cid, val) => {
+  if(!appState.courseScales) appState.courseScales={};
+  appState.courseScales[cid] = val;
+  saveToFirebase();
+  renderCourses();
+};
 
 const renderStrategy = () => {
-  const {courses,courseWeights,courseCredits,scale}=appState;
-  const ranked=courses.map((c,i)=>({...c,impact:computeImpact(c,courseWeights,scale,courseCredits),...courseGrade(c,courseWeights),_i:i})).sort((a,b)=>b.impact-a.impact);
+  const {courses,courseWeights,courseCredits,courseScales,scale}=appState;
+  const ranked=courses.map((c,i)=>{const g=courseGrade(c,courseWeights);return {...c,impact:computeImpact(c,courseWeights,scale,courseCredits,courseScales),currentPct:g.currentPct,possibleNow:g.possibleNow,pct:g.currentPct,_i:i};}).sort((a,b)=>b.impact-a.impact);
   const maxImp=ranked[0]?.impact||1;
   const list=$('strategy-list'); list.innerHTML='';
   ranked.forEach((c,i)=>{
@@ -882,15 +1072,15 @@ const renderStrategy = () => {
     const bounds=[60,63,68,70,73,78,80,83,88,90,93,98];
     const next=bounds.find(b=>b>c.pct);
     const distStr=next?`. ${(next-c.pct).toFixed(1)}pt to ${pctToLetter(next)}`:'. A+ ceiling';
-    list.innerHTML+=`<div class="strategy-row">
-      <div class="strategy-num ${i===0?'top':''}">${String(i+1).padStart(2,'0')}</div>
-      <div style="width:5px;align-self:stretch;background:${color};border-radius:2px"></div>
+    list.innerHTML+=`<div style="border-bottom:1px solid var(--border-soft);padding:16px 0;display:grid;grid-template-columns:36px 4px 1fr auto 120px;gap:14px;align-items:center">
+      <div style="font-family:var(--display);font-size:32px;color:${i===0?'var(--ink1)':'var(--ink3)'};letter-spacing:-2px;line-height:1">${String(i+1).padStart(2,'0')}</div>
+      <div style="align-self:stretch;background:${color};border-radius:2px"></div>
       <div>
-        <div style="font-family:var(--display);font-size:20px;letter-spacing:1.5px;color:var(--ink1)">${c.name}</div>
-        <div style="font-size:12px;font-weight:500;color:var(--ink2);margin-top:2px">${c.pct>0?c.pct.toFixed(1)+'% — '+pctToLetter(c.pct)+distStr:'No data yet'}</div>
+        <div style="font-family:var(--display);font-size:20px;letter-spacing:1.5px;color:var(--ink1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+        <div style="font-style:italic;font-size:12px;color:var(--ink2);margin-top:2px">${c.pct>0?c.pct.toFixed(1)+'% — '+pctToLetter(c.pct)+distStr:'No data yet'}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-family:var(--display);font-size:28px;color:var(--ink1)">${c.impact.toFixed(0)}</div>
+        <div style="font-family:var(--display);font-size:28px;color:var(--ink1);line-height:1">${c.impact.toFixed(0)}</div>
         <div style="font-family:var(--mono);font-size:8px;color:var(--ink3);letter-spacing:1px">IMPACT</div>
       </div>
       <div>
@@ -902,21 +1092,69 @@ const renderStrategy = () => {
 };
 
 const renderSimulator = () => {
-  const {courses,courseWeights,courseCredits,scale,simAdjustments}=appState;
-  const baseGPA=computeGPA(courses,courseWeights,scale,courseCredits);
+  const {courses,courseWeights,courseCredits,courseScales,scale,simAdjustments,simFilter}=appState;
+  const baseGPA=computeGPA(courses,courseWeights,scale,courseCredits,courseScales);
   $('sim-current').textContent=baseGPA.toFixed(2);
+
+  // Build simulated courses with adjustments applied to pending items
   const simCourses=courses.map(c=>({...c,categories:Object.fromEntries(Object.entries(c.categories||{}).map(([k,cat])=>([k,{...cat,items:(cat.items||[]).map(i=>{
     if(i.done&&i.score!==null)return i;
     const adj=simAdjustments[i.id];
     return adj!=null?{...i,score:adj/100*i.max,done:true}:i;
   })}])))}));
-  const simGPA=computeGPA(simCourses,courseWeights,scale,courseCredits);
+  const simGPA=computeGPA(simCourses,courseWeights,scale,courseCredits,courseScales);
   const delta=simGPA-baseGPA;
   $('sim-projected').textContent=simGPA.toFixed(2);
   const dEl=$('sim-delta'); dEl.textContent=(delta>=0?'+':'')+delta.toFixed(2);
   dEl.className='sim-block-val '+(delta>0.005?'pos':delta<-0.005?'neg':'');
+
+  // Compute leverage per assignment: (weight of category) * (pts / cat total) * 100
+  const leverage=(course,item,catName)=>{
+    const catItems=course.categories[catName]?.items||[];
+    const catTotal=catItems.reduce((s,i)=>s+i.max,0);
+    if(!catTotal)return 0;
+    const w=courseWeights[course.sectionId||course.id];
+    const catW=w&&w[catName]!=null?w[catName]/100:1/Object.keys(course.categories).length;
+    return item.max/catTotal*catW*100;
+  };
+
+  // Find highest-leverage unscored assignment
+  const filtered=courses.filter(c=>!simFilter||c.id===simFilter);
+  let bestAssign=null;
+  filtered.forEach(c=>{
+    Object.entries(c.categories||{}).forEach(([catName,cat])=>{
+      cat.items.forEach(item=>{
+        if(item.done&&item.score!==null)return;
+        const lev=leverage(c,item,catName);
+        if(!bestAssign||lev>bestAssign.lev) bestAssign={course:c,item,catName,lev};
+      });
+    });
+  });
+
   const list=$('sim-list'); list.innerHTML='';
-  courses.forEach((c)=>{
+
+  // Course filter dropdown
+  list.innerHTML+=`<div style="margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--ink3)">FILTER:</span>
+    <button onclick="window.setSimFilter(null)" style="padding:5px 12px;border-radius:4px;font-family:var(--mono);font-size:9px;letter-spacing:1.5px;border:1px solid var(--border);cursor:pointer;background:${!simFilter?'linear-gradient(135deg,var(--gold),#8a6d10)':'var(--bg3)'};color:${!simFilter?'var(--bg)':'var(--ink2)'}">ALL</button>
+    ${courses.map(c=>`<button onclick="window.setSimFilter('${c.id}')" style="padding:5px 12px;border-radius:4px;font-family:var(--mono);font-size:9px;letter-spacing:1.5px;border:1px solid var(--border);cursor:pointer;background:${simFilter===c.id?'linear-gradient(135deg,var(--gold),#8a6d10)':'var(--bg3)'};color:${simFilter===c.id?'var(--bg)':'var(--ink2)'}">
+      ${c.name.split(' ').slice(0,2).join(' ').toUpperCase()}
+    </button>`).join('')}
+  </div>`;
+
+  // Highest-leverage highlight card
+  if(bestAssign){
+    list.innerHTML+=`<div class="card" style="margin-bottom:14px;border-color:rgba(201,162,39,0.4)">
+      <div class="card-accent"></div>
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--ink3);margin-bottom:5px">HIGHEST-LEVERAGE ASSIGNMENT</div>
+      <div style="font-family:var(--display);font-size:18px;color:var(--ink1);margin-bottom:2px">${bestAssign.item.name}</div>
+      <div style="font-style:italic;font-size:12px;color:var(--ink2)">${bestAssign.course.name} · ${bestAssign.catName} · worth ${bestAssign.lev.toFixed(1)}% of your final grade</div>
+    </div>`;
+  }
+
+  // Sliders per course
+  const visibleCourses=simFilter?courses.filter(c=>c.id===simFilter):courses;
+  visibleCourses.forEach((c)=>{
     const remaining=[];
     Object.entries(c.categories||{}).forEach(([cat,catObj])=>{
       (catObj.items||[]).forEach(i=>{ if(!i.done||i.score===null)remaining.push({...i,cat}); });
@@ -928,42 +1166,76 @@ const renderSimulator = () => {
         const val=simAdjustments[item.id];
         return `<div class="slider-row">
           <div class="slider-meta"><div class="slider-name">${item.name}</div><div class="slider-pct">${val!=null?val+'%':'—'}</div></div>
-          <div class="slider-sub">${item.cat} · ${item.max}pt</div>
+          <div class="slider-sub">${item.cat} · ${item.max}pt · leverage ${leverage(c,item,item.cat).toFixed(1)}%</div>
           <input class="range-slider" type="range" min="0" max="100" value="${val??85}" oninput="window.updateSim('${item.id}',parseInt(this.value))"/>
         </div>`;
       }).join('')}
     </div>`;
   });
-  if(!courses.length)list.innerHTML='<div style="color:var(--ink3);font-family:var(--mono);font-size:10px;letter-spacing:2px;padding:24px 0">NO COURSES LOADED</div>';
+  if(!courses.length)list.innerHTML+='<div style="color:var(--ink3);font-family:var(--mono);font-size:10px;letter-spacing:2px;padding:24px 0">NO COURSES LOADED</div>';
 };
 window.updateSim = (id,val) => { appState.simAdjustments[id]=val; renderSimulator(); };
+window.setSimFilter = (id) => { appState.simFilter=id; renderSimulator(); };
 
 const renderInsights = () => {
   const {courses,courseWeights}=appState;
   const out=[];
+  const sevColor=sev=>sev==='high'?'#D97B3A':sev==='medium'?'var(--gold)':'var(--green2)';
+  const sevLabel=sev=>sev==='high'?'URGENT':sev==='medium'?'NOTABLE':'OBSERVED';
+
+  // Volatility
   courses.forEach(c=>{
     const allScores=Object.values(c.categories||{}).flatMap(cat=>(cat.items||[]).filter(i=>i.done&&i.score!==null).map(i=>(i.score/i.max)*100));
     if(allScores.length>=3){
       const mean=allScores.reduce((a,b)=>a+b,0)/allScores.length;
       const sd=Math.sqrt(allScores.reduce((a,b)=>a+(b-mean)**2,0)/allScores.length);
-      if(sd>10)out.push({sev:sd>15?'high':'medium',kind:'VOLATILITY',color:sd>15?'#D97B3A':'#c9a227',text:`${c.name} shows high score variance (σ = ${sd.toFixed(1)}). Inconsistency suggests focus on fundamentals.`});
+      if(sd>10)out.push({sev:sd>15?'high':'medium',kind:'VOLATILITY',course:c,text:`${c.name} shows high score variance (σ = ${sd.toFixed(1)}). Inconsistency suggests focus on fundamentals.`});
     }
-    const {pct}=courseGrade(c,courseWeights);
+  });
+
+  // Boundary risk
+  courses.forEach(c=>{
+    const {currentPct:pct}=courseGrade(c,courseWeights);
     const bounds=[63,68,70,73,78,80,83,88,90,93,98];
     const above=bounds.slice().reverse().find(b=>pct>=b);
-    if(above&&pct-above<1.5)out.push({sev:pct-above<0.5?'high':'medium',kind:'BOUNDARY',color:pct-above<0.5?'#D97B3A':'#c9a227',text:`${c.name} is only ${(pct-above).toFixed(1)} points above ${pctToLetter(above)}. One bad score could drop a letter.`});
-    const missing=Object.values(c.categories||{}).flatMap(cat=>(cat.items||[]).filter(i=>i.missing)).length;
-    if(missing>0)out.push({sev:'high',kind:'MISSING',color:'#D97B3A',text:`${c.name} has ${missing} missing ${missing===1?'assignment':'assignments'}. Counts as zero unless turned in.`});
+    if(above&&pct-above<1.5)out.push({sev:pct-above<0.5?'high':'medium',kind:'BOUNDARY',course:c,text:`${c.name} is only ${(pct-above).toFixed(1)} points above ${pctToLetter(above)}. One bad score could drop a letter.`});
   });
+
+  // Missing assignments
+  courses.forEach(c=>{
+    const missing=Object.values(c.categories||{}).flatMap(cat=>(cat.items||[]).filter(i=>i.missing)).length;
+    if(missing>0)out.push({sev:'high',kind:'MISSING',course:c,text:`${c.name} has ${missing} missing ${missing===1?'assignment':'assignments'}. Counts as zero unless turned in.`});
+  });
+
+  // Trend: compare last 3 vs prior 3 graded items chronologically
+  courses.forEach(c=>{
+    const scored=Object.values(c.categories||{}).flatMap(cat=>(cat.items||[]).filter(i=>i.done&&i.score!==null&&i.duedate).map(i=>({pct:(i.score/i.max)*100,date:i.duedate}))).sort((a,b)=>new Date(a.date)-new Date(b.date));
+    if(scored.length>=6){
+      const recent=scored.slice(-3); const prior=scored.slice(-6,-3);
+      const recentAvg=recent.reduce((s,x)=>s+x.pct,0)/recent.length;
+      const priorAvg=prior.reduce((s,x)=>s+x.pct,0)/prior.length;
+      const delta=recentAvg-priorAvg;
+      if(Math.abs(delta)>5)out.push({sev:delta<-5?'medium':'low',kind:'TREND',course:c,text:`${c.name} ${delta>0?'trending up':'trending down'} — recent ${recentAvg.toFixed(1)}% vs prior ${priorAvg.toFixed(1)}%.`});
+    }
+  });
+
   const list=$('insights-list'); list.innerHTML='';
   if(!out.length){
-    list.innerHTML='<div class="card"><div class="card-accent"></div><div style="font-family:var(--display);font-size:22px;letter-spacing:2px;color:var(--ink1);margin-bottom:4px">NOTHING CONCERNING YET</div><div style="font-size:13px;font-weight:500;color:var(--ink2)">No volatility, no boundary risks, no missing work.</div></div>';
+    list.innerHTML=`<div class="card"><div class="card-accent"></div>
+      <div style="font-family:var(--display);font-size:22px;letter-spacing:2px;color:var(--ink1);margin-bottom:4px">NOTHING CONCERNING YET</div>
+      <div style="font-size:13px;font-weight:500;font-style:italic;color:var(--ink2)">No volatility, no boundary risks, no missing work.</div>
+    </div>`;
   } else {
     out.forEach(ins=>{
+      const color=sevColor(ins.sev);
+      const accent=ins.course?.color||color;
       list.innerHTML+=`<div class="insight-card">
-        <div class="insight-severity" style="background:${ins.color}"></div>
-        <div><div class="insight-tag" style="color:${ins.color}">${ins.sev.toUpperCase()} · ${ins.kind}</div><div class="insight-text">${ins.text}</div></div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${ins.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
+        <div class="insight-severity" style="background:${accent}"></div>
+        <div>
+          <div class="insight-tag" style="color:${color}">${sevLabel(ins.sev)} · ${ins.kind}</div>
+          <div class="insight-text">${ins.text}</div>
+        </div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
       </div>`;
     });
   }
@@ -974,9 +1246,9 @@ window.sendChat = async () => {
   const input=$('chat-input'); const text=input.value.trim(); if(!text)return;
   input.value=''; chatHistory.push({role:'user',text});
   renderChat();
-  const {courses,targetGPA,scale,courseWeights,courseCredits}=appState;
-  const gpa=computeGPA(courses,courseWeights,scale,courseCredits);
-  const sysPrompt=`You are Grade Commander, a sharp military-style AI academic advisor. Be concise, tactical, and motivating. The student's data: GPA: ${gpa.toFixed(2)}/${scale}, Target: ${targetGPA}. Courses: ${courses.map(c=>`${c.name}: ${courseGrade(c,courseWeights).pct.toFixed(1)}%`).join(', ')||'None loaded'}. Keep responses under 100 words.`;
+  const {courses,targetGPA,scale,courseWeights,courseCredits,courseScales}=appState;
+  const gpa=computeGPA(courses,courseWeights,scale,courseCredits,courseScales);
+  const sysPrompt=`You are Grade Commander, a sharp military-style AI academic advisor. Be concise, tactical, and motivating. The student's data: GPA: ${gpa.toFixed(2)}/${scale}, Target: ${targetGPA}. Courses: ${courses.map(c=>`${c.name}: ${courseGrade(c,courseWeights).currentPct.toFixed(1)}%`).join(', ')||'None loaded'}. Keep responses under 100 words.`;
   try {
     const res=await fetch('https://aged-limit-3051.raychangstudios.workers.dev',{
       method:'POST',
@@ -1005,13 +1277,13 @@ const renderChat = () => {
 };
 
 const renderProgress = () => {
-  const {courses,courseWeights,courseCredits,scale}=appState;
+  const {courses,courseWeights,courseCredits,courseScales,scale}=appState;
   const allItems=[];
   courses.forEach(c=>Object.values(c.categories||{}).forEach(cat=>(cat.items||[]).forEach(i=>{if(i.done&&i.score!==null&&i.duedate)allItems.push({...i,date:i.duedate});})));
   allItems.sort((a,b)=>new Date(a.date)-new Date(b.date));
   const points=allItems.map((item)=>{
     const snap=courses.map(c=>({...c,categories:Object.fromEntries(Object.entries(c.categories||{}).map(([k,cat])=>([k,{...cat,items:(cat.items||[]).map(i=>(!i.done||i.score===null||!i.duedate||new Date(i.duedate)>new Date(item.date))?{...i,done:false,score:null}:i)}])))}));
-    return {date:item.date,gpa:computeGPA(snap,courseWeights,scale,courseCredits)};
+    return {date:item.date,gpa:computeGPA(snap,courseWeights,scale,courseCredits,courseScales)};
   });
   const canvas=$('progress-chart');
   if(!canvas)return;
