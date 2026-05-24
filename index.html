@@ -666,7 +666,7 @@ window.appState = {
   courses: [], targetGPA: 3.5, scale: 4.3,
   courseWeights: {}, courseCredits: {}, courseScales: {}, term: 'S2',
   dropLowest: false, useCurves: false, semesterMode: true,
-  simAdjustments: {}, simFilter: null
+  simAdjustments: {}, simFilter: null, customAssignments: {}
 };
 let unsubFS = null;
 
@@ -712,16 +712,40 @@ const hasValidWeights = (c, courseWeights) => {
 };
 
 // KF — courseGrade: weighted category averages when valid weights exist, else simple point totals
-const courseGrade = (c, courseWeights={}) => {
+// customAssignments: { courseId: { catName: [{name,score,max}] } }
+const courseGrade = (c, courseWeights={}, customAssignments={}) => {
+  const cid = c.sectionId||c.id;
+  const custom = customAssignments[cid] || {};
+
+  // Build merged categories: PS items + any custom items
+  const mergedCats = {};
+  Object.entries(c.categories||{}).forEach(([cat, catData]) => {
+    const customItems = (custom[cat]||[]).map(ci => ({
+      id: `custom_${cid}_${cat}_${ci.name}`,
+      name: ci.name, score: ci.score, max: ci.max,
+      done: ci.score!=null, missing: false, late: false, duedate: null, _custom: true,
+    }));
+    mergedCats[cat] = { ...catData, items: [...(catData.items||[]), ...customItems] };
+  });
+  // Custom items in NEW categories (user added a cat that doesn't exist in PS)
+  Object.entries(custom).forEach(([cat, items]) => {
+    if(mergedCats[cat]) return;
+    mergedCats[cat] = { weight: null, items: items.map(ci => ({
+      id: `custom_${cid}_${cat}_${ci.name}`,
+      name: ci.name, score: ci.score, max: ci.max,
+      done: ci.score!=null, missing: false, late: false, duedate: null, _custom: true,
+    }))};
+  });
+
   const w = getWeightsFor(c, courseWeights);
-  const cats = Object.keys(c.categories||{});
+  const cats = Object.keys(mergedCats);
   if(cats.length===0) return {currentPct:0, possibleNow:0, remainingWeight:0, hasWeights:false};
 
   if(w && hasValidWeights(c, courseWeights)) {
     // Weighted path: category weighted average
     let weightedSum=0, weightedHave=0, weightedMissing=0;
     cats.forEach(cat => {
-      const catData = c.categories[cat];
+      const catData = mergedCats[cat];
       const catW = (parseFloat(w[cat])||0) / 100;
       const graded = (catData.items||[]).filter(i=>i.done&&i.score!==null);
       if(graded.length===0) { weightedMissing += catW; return; }
@@ -742,7 +766,7 @@ const courseGrade = (c, courseWeights={}) => {
   // Fallback path: simple point totals (no valid weights)
   let totalItems=0, gradedItems=0, earned=0, possible=0;
   cats.forEach(cat => {
-    (c.categories[cat].items||[]).forEach(i => {
+    (mergedCats[cat].items||[]).forEach(i => {
       totalItems++;
       if(i.done&&i.score!==null) { earned+=i.score; possible+=i.max; gradedItems++; }
     });
@@ -757,10 +781,10 @@ const courseGrade = (c, courseWeights={}) => {
 };
 
 // qF — weighted-average GPA across all courses
-const computeGPA = (courses, courseWeights={}, scale=4.3, courseCredits={}, courseScales={}) => {
+const computeGPA = (courses, courseWeights={}, scale=4.3, courseCredits={}, courseScales={}, customAssignments={}) => {
   let tp=0, tc=0;
   courses.forEach(c => {
-    const {currentPct, possibleNow} = courseGrade(c, courseWeights);
+    const {currentPct, possibleNow} = courseGrade(c, courseWeights, customAssignments);
     if(possibleNow<=0) return;
     const cr  = getCredits(c, courseCredits);
     const sc  = getCourseScale(c, courseScales, scale);
@@ -771,8 +795,8 @@ const computeGPA = (courses, courseWeights={}, scale=4.3, courseCredits={}, cour
 };
 
 // JF — marginal GPA impact of improving this course to the next letter boundary
-const computeImpact = (c, courseWeights={}, scale=4.3, courseCredits={}, courseScales={}) => {
-  const {currentPct, possibleNow} = courseGrade(c, courseWeights);
+const computeImpact = (c, courseWeights={}, scale=4.3, courseCredits={}, courseScales={}, customAssignments={}) => {
+  const {currentPct, possibleNow} = courseGrade(c, courseWeights, customAssignments);
   if(possibleNow<=0) return 0;
   const next = [60,63,68,70,73,78,80,83,88,90,93,98].find(b=>b>currentPct);
   if(!next) return 0;
@@ -856,8 +880,8 @@ window.renderAll = () => {
 };
 
 const renderHome = () => {
-  const {courses,targetGPA,scale,courseWeights,courseCredits,courseScales}=appState;
-  const gpa=computeGPA(courses,courseWeights,scale,courseCredits,courseScales);
+  const {courses,targetGPA,scale,courseWeights,courseCredits,courseScales,customAssignments}=appState;
+  const gpa=computeGPA(courses,courseWeights,scale,courseCredits,courseScales,customAssignments);
   const noCourses=courses.length===0;
   $('home-nops').style.display=noCourses?'flex':'none';
   $('h-gpa').textContent=gpa>0?gpa.toFixed(2):'—';
@@ -866,16 +890,16 @@ const renderHome = () => {
   const onTrackPct=targetGPA>0?Math.min(100,Math.round((gpa/targetGPA)*100)):0;
   $('h-track').textContent=onTrackPct+'%';
   $('h-track-bar').style.width=onTrackPct+'%';
-  const atRisk=courses.filter(c=>courseGrade(c,courseWeights).currentPct<75).length;
+  const atRisk=courses.filter(c=>courseGrade(c,courseWeights,customAssignments).currentPct<75).length;
   const risk=atRisk>=2?'HIGH':atRisk===1?'MEDIUM':'LOW';
   $('h-risk').textContent=risk;
   $('h-risk-badge').innerHTML=`<span class="risk-badge risk-${risk.toLowerCase()}">${risk}</span>`;
-  const ranked=courses.map((c,i)=>({...c,impact:computeImpact(c,courseWeights,scale,courseCredits,courseScales),_i:i})).sort((a,b)=>b.impact-a.impact);
+  const ranked=courses.map((c,i)=>{const g=courseGrade(c,courseWeights,customAssignments);return{...c,impact:computeImpact(c,courseWeights,scale,courseCredits,courseScales,customAssignments),currentPct:g.currentPct,possibleNow:g.possibleNow,_i:i};}).sort((a,b)=>b.impact-a.impact);
   const top=ranked[0];
   if(top&&top.impact>0){
     $('home-priority').style.display='grid';
     $('h-priority-name').textContent=top.name;
-    const {currentPct:topPct}=courseGrade(top,courseWeights);
+    const {currentPct:topPct}=courseGrade(top,courseWeights,customAssignments);
     $('h-priority-desc').textContent=`Currently ${topPct.toFixed(1)}% — highest leverage on your overall GPA.`;
   } else { $('home-priority').style.display='none'; }
   let totalDone=0,totalPend=0;
@@ -895,7 +919,7 @@ const renderHome = () => {
       <div class="course-dot" style="background:${color}"></div>
       <div class="course-info"><div class="course-name">${c.name}</div><div class="course-code">${c.code||''} · ${cr}cr</div></div>
       <div class="course-stat"><div class="stat-val">${possible>0?pct.toFixed(1):'—'}</div><div class="stat-lbl">${possible>0?pctToLetter(pct):'NO DATA'}</div></div>
-      <div class="course-stat green"><div class="stat-val">${gradeToGPA(pct,scale).toFixed(1)}</div><div class="stat-lbl">GPA</div></div>
+      <div class="course-stat green"><div class="stat-val">${gradeToGPA(pct,getCourseScale(c,courseScales,scale)).toFixed(1)}</div><div class="stat-lbl">GPA</div></div>
       <div class="course-stat gold"><div class="stat-val">${c.impact.toFixed(0)}</div><div class="stat-lbl">IMPACT</div></div>
     </div>`;
   });
@@ -904,8 +928,17 @@ const renderHome = () => {
 // Returns true if a course has no weights configured at all
 const courseNeedsSetup = (c, courseWeights) => !hasValidWeights(c, courseWeights);
 
+window._openCards = new Set();
+const restoreOpenCards = () => {
+  window._openCards.forEach(id => {
+    const body=$(id), chev=$('chev-'+id);
+    if(body) body.classList.add('open');
+    if(chev) chev.classList.add('open');
+  });
+};
+
 const renderCourses = () => {
-  const {courses,courseWeights,courseCredits,courseScales,scale}=appState;
+  const {courses,courseWeights,courseCredits,courseScales,scale,customAssignments}=appState;
   const list=$('courses-list'); list.innerHTML='';
   if(!courses.length){list.innerHTML='<div style="color:var(--ink3);font-family:var(--mono);font-size:11px;letter-spacing:2px;padding:20px 0">NO COURSES LOADED — OPEN POWERSCHOOL WITH THE EXTENSION</div>';return;}
 
@@ -923,7 +956,7 @@ const renderCourses = () => {
   }
 
   courses.forEach((c,i)=>{
-    const {currentPct:pct,possibleNow:possible}=courseGrade(c,courseWeights);
+    const {currentPct:pct,possibleNow:possible}=courseGrade(c,courseWeights,customAssignments);
     const cr=getCredits(c,courseCredits);
     const color=courseColor(i);
     const cats=Object.entries(c.categories||{});
@@ -1002,21 +1035,53 @@ const renderCourses = () => {
     </div>`;
 
     cats.forEach(([catName,cat])=>{
-      const items=(cat.items||[]);
-      const graded=items.filter(i=>i.done&&i.score!==null);
+      const customItems = (customAssignments[cid]&&customAssignments[cid][catName])||[];
+      const allItems=[...(cat.items||[]),...customItems.map(ci=>({...ci,done:ci.score!=null,missing:false,late:false,_custom:true}))];
+      const graded=allItems.filter(i=>i.done&&i.score!==null);
       const catEarned=graded.reduce((s,i)=>s+i.score,0);
       const catPoss=graded.reduce((s,i)=>s+i.max,0);
       const catPct=catPoss>0?(catEarned/catPoss)*100:null;
-      bodyHtml+=`<div class="cat-row"><div><div class="cat-name">${catName}</div></div><div style="display:flex;align-items:center;gap:12px">${currentW[catName]?`<span class="cat-weight">${currentW[catName]}%</span>`:'<span class="cat-weight" style="color:var(--ink3)">NOT SET</span>'}<div class="cat-pct">${catPct!==null?catPct.toFixed(1)+'%':'—'}</div></div></div>`;
-      items.slice(0,8).forEach(item=>{
-        const status=item.missing?'MISS':item.late?'LATE':item.done?'DONE':'PEND';
-        bodyHtml+=`<div class="asgn-row" style="padding-left:8px">
+      const catSafeId=`${cid}_${catName}`.replace(/[^a-zA-Z0-9]/g,'_');
+      bodyHtml+=`<div class="cat-row">
+        <div><div class="cat-name">${catName}</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${currentW[catName]?`<span class="cat-weight">${currentW[catName]}%</span>`:'<span class="cat-weight" style="color:var(--ink3)">NOT SET</span>'}
+          <div class="cat-pct">${catPct!==null?catPct.toFixed(1)+'%':'—'}</div>
+          <button onclick="window.toggleAddForm('${catSafeId}')"
+            style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-family:var(--mono);font-size:8px;letter-spacing:1px;color:var(--gold);cursor:pointer;white-space:nowrap">+ ADD</button>
+        </div>
+      </div>`;
+      // Add-assignment inline form (hidden by default)
+      bodyHtml+=`<div id="add-form-${catSafeId}" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:4px 0 8px 0">
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--ink3);margin-bottom:8px">ADD ASSIGNMENT TO ${catName.toUpperCase()}</div>
+        <div style="display:grid;grid-template-columns:1fr 80px 80px auto;gap:8px;align-items:center">
+          <input id="af-name-${catSafeId}" placeholder="Assignment name" type="text"
+            style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:6px 9px;font-size:13px;color:var(--ink1);outline:none"
+            onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--border)'"/>
+          <input id="af-score-${catSafeId}" placeholder="Score" type="number" min="0"
+            style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:6px 9px;font-family:var(--mono);font-size:13px;color:var(--ink1);outline:none;text-align:center"
+            onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--border)'"/>
+          <input id="af-max-${catSafeId}" placeholder="Out of" type="number" min="1" value="100"
+            style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:6px 9px;font-family:var(--mono);font-size:13px;color:var(--ink1);outline:none;text-align:center"
+            onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--border)'"/>
+          <button onclick="window.addCustomAssignment('${cid}','${catName}','${catSafeId}')"
+            style="background:linear-gradient(135deg,var(--gold),#8a6d10);border:none;border-radius:4px;padding:6px 14px;font-family:var(--display);font-size:13px;letter-spacing:1.5px;color:var(--bg);cursor:pointer;white-space:nowrap">ADD</button>
+        </div>
+        <div id="af-err-${catSafeId}" style="font-family:var(--mono);font-size:10px;color:var(--alert);margin-top:5px;min-height:14px"></div>
+      </div>`;
+      allItems.slice(0,20).forEach(item=>{
+        const status=item._custom?'CUSTOM':item.missing?'MISS':item.late?'LATE':item.done?'DONE':'PEND';
+        const statusColor=item._custom?'var(--gold)':item.missing?'var(--alert)':item.late?'var(--gold)':item.done?'var(--green)':'var(--ink3)';
+        bodyHtml+=`<div class="asgn-row" style="padding-left:8px${item._custom?';opacity:0.85':''}">
           <div class="asgn-check ${item.done?'done':''}">${item.done?'<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--bg)" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>':''}</div>
-          <div class="asgn-name">${item.name}</div>
+          <div class="asgn-name">${item.name}${item._custom?'<span style="font-family:var(--mono);font-size:7px;color:var(--gold);margin-left:5px;vertical-align:middle">CUSTOM</span>':''}</div>
           <div class="asgn-score">${item.score!==null?item.score:'—'}</div>
           <div style="color:var(--ink3);font-size:11px">/</div>
           <div class="asgn-score" style="color:var(--ink3)">${item.max}</div>
-          <div class="asgn-status ${status.toLowerCase()}">${status}</div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <div class="asgn-status" style="color:${statusColor}">${status}</div>
+            ${item._custom?`<button onclick="window.removeCustomAssignment('${cid}','${catName}','${item.name}')" style="background:none;border:none;cursor:pointer;color:var(--ink3);padding:0 2px;font-size:13px;line-height:1" title="Remove">×</button>`:''}
+          </div>
         </div>`;
       });
     });
@@ -1032,10 +1097,13 @@ const renderCourses = () => {
       <div class="course-card-body" id="${id}">${bodyHtml}</div>
     </div>`;
   });
+  restoreOpenCards();
 };
 window.toggleCourse = id => {
   const body=$(id), chev=$('chev-'+id);
   body.classList.toggle('open'); chev.classList.toggle('open');
+  if(body.classList.contains('open')) window._openCards.add(id);
+  else window._openCards.delete(id);
 };
 window.setCatWeight = (cid, catName, val) => {
   if(!appState.courseWeights[cid]) appState.courseWeights[cid]={};
@@ -1062,9 +1130,57 @@ window.setCourseScale = (cid, val) => {
   renderCourses();
 };
 
+// ── CUSTOM ASSIGNMENTS ────────────────────────────────────────────────────────
+window.toggleAddForm = (catSafeId) => {
+  const form = $('add-form-'+catSafeId);
+  if(!form) return;
+  const isOpen = form.style.display !== 'none';
+  form.style.display = isOpen ? 'none' : 'block';
+  if(!isOpen) {
+    const nameInput = $('af-name-'+catSafeId);
+    if(nameInput) { nameInput.value=''; nameInput.focus(); }
+    const scoreInput = $('af-score-'+catSafeId);
+    if(scoreInput) scoreInput.value='';
+    const errEl = $('af-err-'+catSafeId);
+    if(errEl) errEl.textContent='';
+  }
+};
+window.addCustomAssignment = (cid, catName, catSafeId) => {
+  const name  = ($('af-name-'+catSafeId)?.value||'').trim();
+  const score = parseFloat($('af-score-'+catSafeId)?.value);
+  const max   = parseFloat($('af-max-'+catSafeId)?.value)||100;
+  const errEl = $('af-err-'+catSafeId);
+  if(!name) { if(errEl) errEl.textContent='Enter an assignment name.'; return; }
+  if(isNaN(score)||score<0) { if(errEl) errEl.textContent='Enter a valid score (0 or higher).'; return; }
+  if(max<=0) { if(errEl) errEl.textContent='Points possible must be > 0.'; return; }
+  if(score>max) { if(errEl) errEl.textContent=`Score (${score}) can't exceed points possible (${max}).`; return; }
+  if(!appState.customAssignments) appState.customAssignments={};
+  if(!appState.customAssignments[cid]) appState.customAssignments[cid]={};
+  if(!appState.customAssignments[cid][catName]) appState.customAssignments[cid][catName]=[];
+  // Prevent duplicates by name
+  const existing = appState.customAssignments[cid][catName];
+  if(existing.find(a=>a.name===name)) { if(errEl) errEl.textContent='An assignment with that name already exists.'; return; }
+  existing.push({name, score, max});
+  saveToFirebase();
+  renderCourses();
+  // Re-open accordion to show the result
+  const bodyEl = document.getElementById('cc-'+appState.courses.findIndex(c=>(c.sectionId||c.id)===cid));
+  if(bodyEl&&!bodyEl.classList.contains('open')) {
+    bodyEl.classList.add('open');
+    const chevEl = document.getElementById('chev-cc-'+appState.courses.findIndex(c=>(c.sectionId||c.id)===cid));
+    if(chevEl) chevEl.classList.add('open');
+  }
+};
+window.removeCustomAssignment = (cid, catName, name) => {
+  if(!appState.customAssignments?.[cid]?.[catName]) return;
+  appState.customAssignments[cid][catName] = appState.customAssignments[cid][catName].filter(a=>a.name!==name);
+  saveToFirebase();
+  renderCourses();
+};
+
 const renderStrategy = () => {
-  const {courses,courseWeights,courseCredits,courseScales,scale}=appState;
-  const ranked=courses.map((c,i)=>{const g=courseGrade(c,courseWeights);return {...c,impact:computeImpact(c,courseWeights,scale,courseCredits,courseScales),currentPct:g.currentPct,possibleNow:g.possibleNow,pct:g.currentPct,_i:i};}).sort((a,b)=>b.impact-a.impact);
+  const {courses,courseWeights,courseCredits,courseScales,scale,customAssignments}=appState;
+  const ranked=courses.map((c,i)=>{const g=courseGrade(c,courseWeights,customAssignments);return {...c,impact:computeImpact(c,courseWeights,scale,courseCredits,courseScales,customAssignments),currentPct:g.currentPct,possibleNow:g.possibleNow,pct:g.currentPct,_i:i};}).sort((a,b)=>b.impact-a.impact);
   const maxImp=ranked[0]?.impact||1;
   const list=$('strategy-list'); list.innerHTML='';
   ranked.forEach((c,i)=>{
@@ -1092,8 +1208,8 @@ const renderStrategy = () => {
 };
 
 const renderSimulator = () => {
-  const {courses,courseWeights,courseCredits,courseScales,scale,simAdjustments,simFilter}=appState;
-  const baseGPA=computeGPA(courses,courseWeights,scale,courseCredits,courseScales);
+  const {courses,courseWeights,courseCredits,courseScales,scale,simAdjustments,simFilter,customAssignments}=appState;
+  const baseGPA=computeGPA(courses,courseWeights,scale,courseCredits,courseScales,customAssignments);
   $('sim-current').textContent=baseGPA.toFixed(2);
 
   // Build simulated courses with adjustments applied to pending items
@@ -1102,7 +1218,20 @@ const renderSimulator = () => {
     const adj=simAdjustments[i.id];
     return adj!=null?{...i,score:adj/100*i.max,done:true}:i;
   })}])))}));
-  const simGPA=computeGPA(simCourses,courseWeights,scale,courseCredits,courseScales);
+  // Apply slider values to custom assignments too (they have score:null until slid)
+  const simCustom={};
+  Object.entries(customAssignments).forEach(([cid,cats])=>{
+    simCustom[cid]={};
+    Object.entries(cats).forEach(([cat,items])=>{
+      simCustom[cid][cat]=items.map(ci=>{
+        const itemId=`custom_${cid}_${cat}_${ci.name}`;
+        const adj=simAdjustments[itemId];
+        if(ci.score!=null)return ci;
+        return adj!=null?{...ci,score:adj/100*ci.max}:ci;
+      });
+    });
+  });
+  const simGPA=computeGPA(simCourses,courseWeights,scale,courseCredits,courseScales,simCustom);
   const delta=simGPA-baseGPA;
   $('sim-projected').textContent=simGPA.toFixed(2);
   const dEl=$('sim-delta'); dEl.textContent=(delta>=0?'+':'')+delta.toFixed(2);
@@ -1155,30 +1284,101 @@ const renderSimulator = () => {
   // Sliders per course
   const visibleCourses=simFilter?courses.filter(c=>c.id===simFilter):courses;
   visibleCourses.forEach((c)=>{
+    const cid=c.sectionId||c.id;
     const remaining=[];
+    // Include custom assignments as pending items for simulation
     Object.entries(c.categories||{}).forEach(([cat,catObj])=>{
       (catObj.items||[]).forEach(i=>{ if(!i.done||i.score===null)remaining.push({...i,cat}); });
+      (customAssignments[cid]?.[cat]||[]).forEach(ci=>{
+        if(ci.score==null) remaining.push({id:`custom_${cid}_${cat}_${ci.name}`,name:ci.name,max:ci.max,score:null,done:false,cat,_custom:true});
+      });
     });
-    if(!remaining.length)return;
+    const cats=Object.keys(c.categories||{});
+    const safeId=cid.toString().replace(/[^a-zA-Z0-9]/g,'_');
     list.innerHTML+=`<div class="card" style="margin-bottom:12px"><div class="card-accent"></div>
-      <div style="font-family:var(--display);font-size:18px;letter-spacing:1.5px;color:var(--ink1);margin-bottom:10px">${c.name}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-family:var(--display);font-size:18px;letter-spacing:1.5px;color:var(--ink1)">${c.name}</div>
+        <button onclick="window.toggleSimAddForm('${safeId}')"
+          style="background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:5px 12px;font-family:var(--mono);font-size:9px;letter-spacing:1.5px;color:var(--gold);cursor:pointer">+ ADD ASSIGNMENT</button>
+      </div>
+      <div id="sim-add-form-${safeId}" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px">
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--ink3);margin-bottom:8px">NEW HYPOTHETICAL ASSIGNMENT</div>
+        <div style="display:grid;grid-template-columns:1fr 110px 110px auto;gap:8px;align-items:center;margin-bottom:6px">
+          <input id="sim-af-name-${safeId}" placeholder="Assignment name" type="text"
+            style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-size:13px;color:var(--ink1);outline:none"
+            onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--border)'"/>
+          <select id="sim-af-cat-${safeId}"
+            style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:7px 8px;font-family:var(--mono);font-size:11px;color:var(--ink1);outline:none">
+            ${cats.map(cat=>`<option value="${cat}">${cat}</option>`).join('')}
+          </select>
+          <input id="sim-af-max-${safeId}" placeholder="Points (100)" type="number" min="1" value="100"
+            style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-family:var(--mono);font-size:13px;color:var(--ink1);outline:none;text-align:center"
+            onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--border)'"/>
+          <button onclick="window.simAddAssignment('${cid}','${safeId}')"
+            style="background:linear-gradient(135deg,var(--gold),#8a6d10);border:none;border-radius:4px;padding:7px 14px;font-family:var(--display);font-size:13px;letter-spacing:1.5px;color:var(--bg);cursor:pointer;white-space:nowrap">ADD</button>
+        </div>
+        <div id="sim-af-err-${safeId}" style="font-family:var(--mono);font-size:10px;color:var(--alert);min-height:14px"></div>
+      </div>
+      ${remaining.length===0?`<div style="font-family:var(--mono);font-size:10px;color:var(--ink3);letter-spacing:1.5px;padding:10px 0">ALL ASSIGNMENTS GRADED — ADD ONE ABOVE TO SIMULATE</div>`:''}
       ${remaining.map(item=>{
         const val=simAdjustments[item.id];
         return `<div class="slider-row">
-          <div class="slider-meta"><div class="slider-name">${item.name}</div><div class="slider-pct">${val!=null?val+'%':'—'}</div></div>
+          <div class="slider-meta">
+            <div class="slider-name">${item.name}${item._custom?'<span style="font-family:var(--mono);font-size:7px;color:var(--gold);margin-left:6px;vertical-align:middle">CUSTOM</span>':''}</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="slider-pct">${val!=null?val+'%':'—'}</div>
+              ${item._custom?`<button onclick="window.simRemoveAssignment('${cid}','${item.cat}','${item.name}')" style="background:none;border:none;cursor:pointer;color:var(--ink3);font-size:14px;line-height:1;padding:0" title="Remove">×</button>`:''}
+            </div>
+          </div>
           <div class="slider-sub">${item.cat} · ${item.max}pt · leverage ${leverage(c,item,item.cat).toFixed(1)}%</div>
           <input class="range-slider" type="range" min="0" max="100" value="${val??85}" oninput="window.updateSim('${item.id}',parseInt(this.value))"/>
         </div>`;
       }).join('')}
     </div>`;
   });
-  if(!courses.length)list.innerHTML+='<div style="color:var(--ink3);font-family:var(--mono);font-size:10px;letter-spacing:2px;padding:24px 0">NO COURSES LOADED</div>';
+  // Always show all visible courses, even if no pending items (so add button is visible)
+  if(visibleCourses.length===0||(!simFilter&&courses.length===0))list.innerHTML+='<div style="color:var(--ink3);font-family:var(--mono);font-size:10px;letter-spacing:2px;padding:24px 0">NO COURSES LOADED</div>';
 };
 window.updateSim = (id,val) => { appState.simAdjustments[id]=val; renderSimulator(); };
 window.setSimFilter = (id) => { appState.simFilter=id; renderSimulator(); };
+window.toggleSimAddForm = (safeId) => {
+  const form=document.getElementById('sim-add-form-'+safeId);
+  if(!form)return;
+  const isOpen=form.style.display!=='none';
+  form.style.display=isOpen?'none':'block';
+  if(!isOpen){
+    const n=document.getElementById('sim-af-name-'+safeId);
+    if(n){n.value='';n.focus();}
+    const e=document.getElementById('sim-af-err-'+safeId);
+    if(e)e.textContent='';
+  }
+};
+window.simAddAssignment = (cid, safeId) => {
+  const name=(document.getElementById('sim-af-name-'+safeId)?.value||'').trim();
+  const cat=document.getElementById('sim-af-cat-'+safeId)?.value||'';
+  const max=parseFloat(document.getElementById('sim-af-max-'+safeId)?.value)||100;
+  const errEl=document.getElementById('sim-af-err-'+safeId);
+  if(!name){if(errEl)errEl.textContent='Enter an assignment name.';return;}
+  if(max<=0){if(errEl)errEl.textContent='Points must be > 0.';return;}
+  if(!appState.customAssignments)appState.customAssignments={};
+  if(!appState.customAssignments[cid])appState.customAssignments[cid]={};
+  if(!appState.customAssignments[cid][cat])appState.customAssignments[cid][cat]=[];
+  if(appState.customAssignments[cid][cat].find(a=>a.name===name)){if(errEl)errEl.textContent='Name already used.';return;}
+  // Add with no score so it appears as a pending slider
+  appState.customAssignments[cid][cat].push({name,score:null,max});
+  saveToFirebase();
+  renderSimulator();
+};
+window.simRemoveAssignment = (cid, cat, name) => {
+  if(!appState.customAssignments?.[cid]?.[cat])return;
+  appState.customAssignments[cid][cat]=appState.customAssignments[cid][cat].filter(a=>a.name!==name);
+  delete appState.simAdjustments[`custom_${cid}_${cat}_${name}`];
+  saveToFirebase();
+  renderSimulator();
+};
 
 const renderInsights = () => {
-  const {courses,courseWeights}=appState;
+  const {courses,courseWeights,customAssignments}=appState;
   const out=[];
   const sevColor=sev=>sev==='high'?'#D97B3A':sev==='medium'?'var(--gold)':'var(--green2)';
   const sevLabel=sev=>sev==='high'?'URGENT':sev==='medium'?'NOTABLE':'OBSERVED';
@@ -1195,7 +1395,7 @@ const renderInsights = () => {
 
   // Boundary risk
   courses.forEach(c=>{
-    const {currentPct:pct}=courseGrade(c,courseWeights);
+    const {currentPct:pct}=courseGrade(c,courseWeights,customAssignments);
     const bounds=[63,68,70,73,78,80,83,88,90,93,98];
     const above=bounds.slice().reverse().find(b=>pct>=b);
     if(above&&pct-above<1.5)out.push({sev:pct-above<0.5?'high':'medium',kind:'BOUNDARY',course:c,text:`${c.name} is only ${(pct-above).toFixed(1)} points above ${pctToLetter(above)}. One bad score could drop a letter.`});
@@ -1246,9 +1446,9 @@ window.sendChat = async () => {
   const input=$('chat-input'); const text=input.value.trim(); if(!text)return;
   input.value=''; chatHistory.push({role:'user',text});
   renderChat();
-  const {courses,targetGPA,scale,courseWeights,courseCredits,courseScales}=appState;
-  const gpa=computeGPA(courses,courseWeights,scale,courseCredits,courseScales);
-  const sysPrompt=`You are Grade Commander, a sharp military-style AI academic advisor. Be concise, tactical, and motivating. The student's data: GPA: ${gpa.toFixed(2)}/${scale}, Target: ${targetGPA}. Courses: ${courses.map(c=>`${c.name}: ${courseGrade(c,courseWeights).currentPct.toFixed(1)}%`).join(', ')||'None loaded'}. Keep responses under 100 words.`;
+  const {courses,targetGPA,scale,courseWeights,courseCredits,courseScales,customAssignments}=appState;
+  const gpa=computeGPA(courses,courseWeights,scale,courseCredits,courseScales,customAssignments);
+  const sysPrompt=`You are Grade Commander, a sharp military-style AI academic advisor. Be concise, tactical, and motivating. The student's data: GPA: ${gpa.toFixed(2)}/${scale}, Target: ${targetGPA}. Courses: ${courses.map(c=>`${c.name}: ${courseGrade(c,courseWeights,customAssignments).currentPct.toFixed(1)}%`).join(', ')||'None loaded'}. Keep responses under 100 words.`;
   try {
     const res=await fetch('https://aged-limit-3051.raychangstudios.workers.dev',{
       method:'POST',
@@ -1277,13 +1477,13 @@ const renderChat = () => {
 };
 
 const renderProgress = () => {
-  const {courses,courseWeights,courseCredits,courseScales,scale}=appState;
+  const {courses,courseWeights,courseCredits,courseScales,scale,customAssignments}=appState;
   const allItems=[];
   courses.forEach(c=>Object.values(c.categories||{}).forEach(cat=>(cat.items||[]).forEach(i=>{if(i.done&&i.score!==null&&i.duedate)allItems.push({...i,date:i.duedate});})));
   allItems.sort((a,b)=>new Date(a.date)-new Date(b.date));
   const points=allItems.map((item)=>{
     const snap=courses.map(c=>({...c,categories:Object.fromEntries(Object.entries(c.categories||{}).map(([k,cat])=>([k,{...cat,items:(cat.items||[]).map(i=>(!i.done||i.score===null||!i.duedate||new Date(i.duedate)>new Date(item.date))?{...i,done:false,score:null}:i)}])))}));
-    return {date:item.date,gpa:computeGPA(snap,courseWeights,scale,courseCredits,courseScales)};
+    return {date:item.date,gpa:computeGPA(snap,courseWeights,scale,courseCredits,courseScales,customAssignments)};
   });
   const canvas=$('progress-chart');
   if(!canvas)return;
@@ -1316,22 +1516,63 @@ const renderProgress = () => {
 };
 
 const renderSettings = () => {
-  const {scale,targetGPA,dropLowest,useCurves,semesterMode}=appState;
+  const {scale,targetGPA,dropLowest,useCurves,semesterMode,term}=appState;
   $('scale-43').classList.toggle('active',scale!==4.8);
   $('scale-48').classList.toggle('active',scale===4.8);
   $('target-slider').value=targetGPA; $('target-display').textContent=targetGPA.toFixed(2);
   $('tog-drop').classList.toggle('on',!!dropLowest);
   $('tog-curves').classList.toggle('on',!!useCurves);
   $('tog-sem').classList.toggle('on',!!semesterMode);
+  // Restore term button state from saved appState
+  const t=term||'S2';
+  $('term-s2').classList.toggle('active',t==='S2');
+  $('term-y1').classList.toggle('active',t==='Y1');
 };
 window.setScale = v => { appState.scale=v; saveToFirebase(); renderSettings(); };
 window.updateTarget = v => { appState.targetGPA=parseFloat(v); $('target-display').textContent=parseFloat(v).toFixed(2); saveToFirebase(); };
 window.toggleSetting = key => { appState[key]=!appState[key]; saveToFirebase(); renderSettings(); };
 window.setTerm = t => {
-  appState.term=t;
-  $('term-s2').classList.toggle('active',t==='S2');
-  $('term-y1').classList.toggle('active',t==='Y1');
+  const prev = appState.term;
+  appState.term = t;
+  $('term-s2').classList.toggle('active', t==='S2');
+  $('term-y1').classList.toggle('active', t==='Y1');
   saveToFirebase();
+  // Write to chrome.storage so the scraper picks it up on next run
+  if(typeof chrome !== 'undefined' && chrome.storage) {
+    chrome.storage.local.set({ grade_commander_state: appState });
+  }
+  // Show rescrape banner if term actually changed and courses are loaded
+  if(prev !== t && appState.courses && appState.courses.length > 0) {
+    showRescrape(t);
+  }
+};
+
+const showRescrape = (term) => {
+  const label = term==='Y1' ? 'Full Year' : 'Semester 2';
+  // Remove any existing banner
+  const old = document.getElementById('rescrape-banner');
+  if(old) old.remove();
+  const banner = document.createElement('div');
+  banner.id = 'rescrape-banner';
+  banner.style.cssText = `
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+    background:var(--bg2);border:1px solid var(--gold);border-radius:10px;
+    padding:14px 20px;display:flex;align-items:center;gap:14px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.6);z-index:9999;
+    max-width:520px;width:calc(100vw - 48px);
+  `;
+  banner.innerHTML = `
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    <div style="flex:1">
+      <div style="font-family:var(--display);font-size:15px;letter-spacing:1.5px;color:var(--ink1)">RESCRAPE REQUIRED</div>
+      <div style="font-size:12px;font-weight:500;color:var(--ink2);margin-top:2px">Switched to <strong style="color:var(--gold)">${label}</strong>. Open PowerSchool and click <strong style="color:var(--gold)">Refresh</strong> in the extension popup to reload your grades for this term.</div>
+    </div>
+    <button onclick="document.getElementById('rescrape-banner').remove()"
+      style="background:none;border:none;color:var(--ink3);cursor:pointer;font-size:18px;line-height:1;flex-shrink:0;padding:2px">×</button>
+  `;
+  document.body.appendChild(banner);
+  // Auto-dismiss after 12s
+  setTimeout(() => { if(banner.parentNode) banner.remove(); }, 12000);
 };
 </script>
 </body>
