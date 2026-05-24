@@ -455,6 +455,7 @@ nav.sidebar-nav{flex:1;padding:8px 0;}
         <div class="term-btn active" id="term-s2" onclick="setTerm('S2')">SEM 2</div>
         <div class="term-btn" id="term-y1" onclick="setTerm('Y1')">YEAR</div>
       </div>
+      <button onclick="window.forceRefresh()" style="width:100%;margin-top:8px;padding:8px;background:transparent;border:1px solid rgba(201,162,39,0.3);border-radius:4px;font-family:var(--mono);font-size:8px;letter-spacing:2px;color:var(--gold);cursor:pointer;transition:all 0.15s;" onmouseover="this.style.background='rgba(201,162,39,0.08)'" onmouseout="this.style.background='transparent'">↻ SYNC DATA</button>
       <button class="signout-btn" onclick="doSignOut()">SIGN OUT</button>
     </div>
   </div>
@@ -811,8 +812,21 @@ const courseColor = i => ['#e8503a','#d4a373','#5c8d89','#a07cbc','#3d6b4d','#c4
 
 window.saveToFirebase = async () => {
   const user = auth.currentUser; if(!user)return;
-  try { await setDoc(doc(db,'users',user.uid,'data','state'), appState, {merge:true}); }
+  // Never save an empty courses array - that would wipe scraped data
+  const toSave = {...appState};
+  if(!toSave.courses || toSave.courses.length === 0) delete toSave.courses;
+  try { await setDoc(doc(db,'users',user.uid,'data','state'), toSave, {merge:true}); }
   catch(e){ console.error('Save error:',e); }
+};
+
+// Manual force-refresh from Firestore (in case realtime listener missed an update)
+window.forceRefresh = async () => {
+  const user = auth.currentUser; if(!user)return;
+  try {
+    const snap = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js')
+      .then(m => m.getDoc(doc(db,'users',user.uid,'data','state')));
+    if(snap.exists()){ Object.assign(appState, snap.data()); renderAll(); showUpdateToast(); }
+  } catch(e){ console.error('Force refresh error:', e); }
 };
 
 window.switchTab = tab => {
@@ -850,13 +864,36 @@ onAuthStateChanged(auth, user => {
     const ref=doc(db,'users',user.uid,'data','state');
     if(unsubFS)unsubFS();
     unsubFS=onSnapshot(ref,snap=>{
-      if(snap.exists()){ Object.assign(appState,snap.data()); renderAll(); }
+      if(snap.exists()){
+        const incoming = snap.data();
+        // Preserve local user settings that the extension doesn't know about
+        // (extension only writes 'courses'; we keep courseWeights, courseScales, etc)
+        Object.assign(appState, incoming);
+        renderAll();
+        // Show last-updated toast
+        showUpdateToast();
+      }
+    }, err => {
+      console.error('Firestore snapshot error:', err);
     });
   } else {
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
     $('auth-screen').classList.add('active');
   }
 });
+
+const showUpdateToast = () => {
+  const old = document.getElementById('update-toast');
+  if(old) old.remove();
+  const t = document.createElement('div');
+  t.id = 'update-toast';
+  t.style.cssText = 'position:fixed;top:16px;right:16px;background:var(--bg2);border:1px solid var(--green2);border-radius:8px;padding:10px 16px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5);z-index:9999;font-family:var(--mono);font-size:10px;letter-spacing:1.5px;color:var(--green2);transition:opacity 0.4s;';
+  const now = new Date();
+  const time = now.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
+  t.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> DATA SYNCED · ${time}`;
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),400); }, 3000);
+};
 
 window.navTo = page => {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -877,6 +914,12 @@ const renderPage = page => {
 window.renderAll = () => {
   const active = document.querySelector('.page.active');
   if(active) renderPage(active.id.replace('page-',''));
+  // Also update sidebar term buttons to reflect loaded state
+  const t = appState.term||'S2';
+  const s2 = document.getElementById('term-s2');
+  const y1 = document.getElementById('term-y1');
+  if(s2) s2.classList.toggle('active', t==='S2');
+  if(y1) y1.classList.toggle('active', t==='Y1');
 };
 
 const renderHome = () => {
